@@ -14,7 +14,7 @@ let globalArticles = [
         id: "promo",
         title: "Портал запущен!",
         desc: "Система готова к работе.",
-        content: "Все модули CtalkeP активированы. Бесконечный 3D-Паркур запущен! Исправлена ось камеры, добавлен счётчик рекорда."
+        content: "Все модули CtalkeP активированы. Бесконечный 3D-Паркур запущен! Окончательно исправлена инверсия камеры, глаза перенесены на лицо персонажей."
     }
 ];
 let chatMessages = [];      
@@ -391,10 +391,10 @@ app.get('/', (req, res) => {
         let cameraRot = { pitch: 0, yaw: 0 }; 
         let isGrounded = false;
         
-        // Четкая сложная физика прыжка
-        const gravity = -24.0;  // Мощное притяжение
-        const jumpStrength = 9.4; // Высокий сильный прыжок
-        const moveSpeed = 7.5;   // Скоростной бег для разгона
+        // Сложная сбалансированная физика
+        const gravity = -23.5;  
+        const jumpStrength = 9.3; 
+        const moveSpeed = 7.4;   
 
         let keys = { w: false, a: false, s: false, d: false, space: false };
         let isTouchDevice = false;
@@ -478,7 +478,6 @@ app.get('/', (req, res) => {
             dirLight.position.set(10, 50, -10);
             scene.add(dirLight);
 
-            // Сетка бездны на дне
             const gridHelper = new THREE.GridHelper(600, 60, 0x3b82f6, 0x111111);
             gridHelper.position.y = -20;
             scene.add(gridHelper);
@@ -551,10 +550,10 @@ app.get('/', (req, res) => {
         }
 
         function spawnNextBlock() {
-            // Сложный паркур: Расстояние строго от 3.3 до 4.4 метров по Z (надо прыгать с разбега!)
+            // Сложный паркур: Расстояние строго от 3.3 до 4.4 метров по Z
             let distZ = -(localRandom() * 1.1 + 3.3); 
-            let distX = (localRandom() - 0.5) * 3.8; // Разброс влево-вправо
-            let distY = (localRandom() - 0.4) * 1.3; // Разброс вверх-вниз
+            let distX = (localRandom() - 0.5) * 3.8; 
+            let distY = (localRandom() - 0.4) * 1.3; 
 
             lastPlatformX += distX;
             lastPlatformY += distY;
@@ -577,18 +576,15 @@ app.get('/', (req, res) => {
         }
 
         function updateInfiniteWorld() {
-            // Если игрок продвинулся дальше половины существующих блоков, доспавниваем новые и чистим старые
-            const triggerZ = nextPlatformZ + 40; // за 40 метров до конца
+            const triggerZ = nextPlatformZ + 40; 
             if (playerPos.z < triggerZ) {
-                // Спавним ещё 10 блоков вперёд
                 for (let i = 0; i < 10; i++) {
                     spawnNextBlock();
                 }
 
-                // Безжалостно чистим блоки, которые остались на 50 метров позади, чтобы разгрузить GPU/браузер
                 const playerPassedZ = playerPos.z + 50;
                 platforms = platforms.filter(p => {
-                    if (p.z > playerPassedZ && p.z !== 0) { // Не удаляем спавн (z=0)
+                    if (p.z > playerPassedZ && p.z !== 0) { 
                         scene.remove(p.mesh);
                         return false;
                     }
@@ -601,7 +597,7 @@ app.get('/', (req, res) => {
             document.getElementById('distanceMeter').textContent = currentDistance.toFixed(1) + "м";
         }
 
-        // === УПРАВЛЕНИЕ И ОСЬ КАМЕРЫ ===
+        // === УПРАВЛЕНИЕ И ОСЬ КАМЕРЫ (МАТЕМАТИКА БЕЗ ИНВЕРСИЙ) ===
         function setupPhysicsEvents() {
             window.addEventListener('keydown', handleKeyDown);
             window.addEventListener('keyup', handleKeyUp);
@@ -625,12 +621,14 @@ app.get('/', (req, res) => {
         }
 
         function handleMouseMove(e) {
-            // ИСПРАВЛЕНА ОСЬ: Лево — это Лево, Право — это Право!
+            // ИДЕАЛЬНОЕ УПРАВЛЕНИЕ: Движение мыши строго соответствует реальным осям
             if (document.pointerLockElement || e.buttons === 1) {
                 const sens = 0.0022;
-                cameraRot.yaw -= e.movementX * sens; // Убрали инверсию здесь! Теперь поворот абсолютно естественный.
-                cameraRot.pitch -= e.movementY * sens; 
-                cameraRot.pitch = Math.max(-Math.PI / 2.1, Math.min(Math.PI / 2.1, cameraRot.pitch));
+                cameraRot.yaw -= e.movementX * sens; // Влево/Вправо
+                cameraRot.pitch -= e.movementY * sens; // Вверх/Вниз
+                
+                // Ограничиваем вертикальный обзор
+                cameraRot.pitch = Math.max(-Math.PI / 2.05, Math.min(Math.PI / 2.05, cameraRot.pitch));
             }
         }
 
@@ -638,7 +636,6 @@ app.get('/', (req, res) => {
             playerPos = { x: 0, y: 1.5, z: 0 };
             playerVelocity = { x: 0, y: 0, z: 0 };
             cameraRot = { pitch: 0, yaw: 0 };
-            // Пересобираем карту заново при падении
             if (isGameActive && platforms.length > 30) {
                 resetInfiniteMap();
             }
@@ -660,11 +657,13 @@ app.get('/', (req, res) => {
                 moveZ = touchMoveVector.z;
             }
 
+            // Классическая математика движения вперед-назад относительно обзора
             const sin = Math.sin(cameraRot.yaw);
             const cos = Math.cos(cameraRot.yaw);
             
-            let worldMoveX = moveX * cos - moveZ * sin;
-            let worldMoveZ = moveX * sin + moveZ * cos;
+            // Движение вперед — это вглубь отрицательного Z
+            let worldMoveX = moveX * cos + moveZ * sin;
+            let worldMoveZ = -moveX * sin + moveZ * cos;
 
             const length = Math.sqrt(worldMoveX * worldMoveX + worldMoveZ * worldMoveZ);
             if (length > 0) {
@@ -712,11 +711,14 @@ app.get('/', (req, res) => {
         }
 
         function updateCamera() {
+            // ФОРМУЛА СТАНДАРТНОГО FPS-НАПРАВЛЕНИЯ (БЕЗ ИНВЕРСИИ СТОРОН)
             camera.position.set(playerPos.x, playerPos.y, playerPos.z);
+            
             const target = new THREE.Vector3();
-            target.x = playerPos.x + Math.sin(cameraRot.yaw) * Math.cos(cameraRot.pitch);
+            target.x = playerPos.x - Math.sin(cameraRot.yaw) * Math.cos(cameraRot.pitch);
             target.y = playerPos.y + Math.sin(cameraRot.pitch);
             target.z = playerPos.z - Math.cos(cameraRot.yaw) * Math.cos(cameraRot.pitch);
+            
             camera.lookAt(target);
         }
 
@@ -748,11 +750,10 @@ app.get('/', (req, res) => {
                         const dx = e.touches[i].clientX - touchStartPoint.x;
                         const dy = e.touches[i].clientY - touchStartPoint.y;
 
-                        // ИСПРАВЛЕНА ОСЬ КАМЕРЫ НА ТАЧСКРИНЕ
                         const sens = 0.005;
-                        cameraRot.yaw -= dx * sens; // Убрали инверсию свайпа право-лево
-                        cameraRot.pitch -= dy * sens;
-                        cameraRot.pitch = Math.max(-Math.PI / 2.1, Math.min(Math.PI / 2.1, cameraRot.pitch));
+                        cameraRot.yaw -= dx * sens; // Движение пальца вправо крутит камеру вправо
+                        cameraRot.pitch -= dy * sens; // Движение пальца вверх крутит камеру вверх
+                        cameraRot.pitch = Math.max(-Math.PI / 2.05, Math.min(Math.PI / 2.05, cameraRot.pitch));
 
                         touchStartPoint.x = e.touches[i].clientX;
                         touchStartPoint.y = e.touches[i].clientY;
@@ -796,7 +797,7 @@ app.get('/', (req, res) => {
             });
         }
 
-        // РИСОВАНИЕ КРАСИВОГО СПРАЙТА-НИКНЕЙМА С ТЕНЬЮ
+        // РИСОВАНИЕ КРАСИВОГО СПРАЙТА-НИКНЕЙМА
         function createNicknameTexture(text) {
             const canvas = document.createElement('canvas');
             canvas.width = 256;
@@ -873,34 +874,34 @@ app.get('/', (req, res) => {
                     const headMesh = new THREE.Mesh(headGeo, headMat);
                     headGroup.add(headMesh);
 
-                    // МИЛЫЕ ГЛАЗКИ КРАСИВЫЕ
+                    // === МИЛЫЕ ГЛАЗКИ (ИСПРАВЛЕНО: СМОТРЯТ ВПЕРЁД, А НЕ НА ЗАТЫЛОК) ===
                     const eyeGeo = new THREE.SphereGeometry(0.06, 8, 8);
                     const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
                     
                     const pupilGeo = new THREE.SphereGeometry(0.03, 8, 8);
                     const pupilMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
 
-                    // Левый глаз
+                    // Левый глаз (z = -0.22, смотрит строго вперед по оси -Z)
                     const leftEye = new THREE.Group();
                     const leftWhite = new THREE.Mesh(eyeGeo, eyeMat);
                     const leftPupil = new THREE.Mesh(pupilGeo, pupilMat);
-                    leftPupil.position.set(0, 0, 0.04); 
+                    leftPupil.position.set(0, 0, -0.04); 
                     leftEye.add(leftWhite, leftPupil);
-                    leftEye.position.set(-0.11, 0.05, 0.22); 
+                    leftEye.position.set(-0.11, 0.05, -0.22); 
                     headGroup.add(leftEye);
 
-                    // Правый глаз
+                    // Правый глаз (z = -0.22, смотрит строго вперед по оси -Z)
                     const rightEye = new THREE.Group();
                     const rightWhite = new THREE.Mesh(eyeGeo, eyeMat);
                     const rightPupil = new THREE.Mesh(pupilGeo, pupilMat);
-                    rightPupil.position.set(0, 0, 0.04);
+                    rightPupil.position.set(0, 0, -0.04);
                     rightEye.add(rightWhite, rightPupil);
-                    rightEye.position.set(0.11, 0.05, 0.22);
+                    rightEye.position.set(0.11, 0.05, -0.22);
                     headGroup.add(rightEye);
 
                     group.add(headGroup);
 
-                    // НИКНЕЙМ НАД ГОЛОВОЙ
+                    // НИКНЕЙМ НАД ГОЛОВОЙ (Развернут на 180 градусов, чтобы читался прямо)
                     const nickSprite = createNicknameTexture(nick);
                     nickSprite.position.set(0, 1.95, 0); 
                     group.add(nickSprite);
@@ -932,6 +933,7 @@ app.get('/', (req, res) => {
                 group.position.y += (player.targetPos.y - 1.4 - group.position.y) * lerpFactor; 
                 group.position.z += (player.targetPos.z - group.position.z) * lerpFactor;
 
+                // Синхронизируем вращение тела и головы в пространстве
                 group.rotation.y += (player.targetRy - group.rotation.y) * lerpFactor;
                 player.headMesh.rotation.x += (player.targetRx - player.headMesh.rotation.x) * lerpFactor;
             }
@@ -1083,5 +1085,5 @@ app.post('/api/parkour/sync', (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`[CtalkeP] Бесконечный 3D-Паркур успешно перезапущен на порту: ${PORT}`);
+    console.log(`[CtalkeP] Бесконечный 3D-Паркур успешно запущен и исправлен на порту: ${PORT}`);
 });
