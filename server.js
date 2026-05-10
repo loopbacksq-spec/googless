@@ -98,7 +98,7 @@ server.listen(port, () => {
     console.log(`Horror Craft Server running on port ${port}`);
 });
 
-// КЛИЕНТСКИЙ КОД (БЕЗ ВНЕШНИХ ТЕКСТУР И КАРТИНОК)
+// КЛИЕНТСКИЙ КОД (БЕЗ ВНЕШНИХ ТЕКСТУР И КАРТИНОК, ЭКРАНИРОВАННЫЙ)
 const clientHTML = `
 <!DOCTYPE html>
 <html lang="ru">
@@ -258,7 +258,7 @@ const clientHTML = `
                 let slot = document.createElement('div');
                 slot.className = 'hotbar-slot' + (id == activeBlockSlot ? ' active' : '');
                 slot.dataset.id = id;
-                slot.innerHTML = `<div class="hotbar-slot-color" style="background:${BLOCKS[id].color}"></div>`;
+                slot.innerHTML = \`<div class="hotbar-slot-color" style="background:\${BLOCKS[id].color}"></div>\`;
                 slot.addEventListener('click', () => selectSlot(id));
                 hotbar.appendChild(slot);
             }
@@ -272,7 +272,7 @@ const clientHTML = `
         function selectSlot(id) {
             activeBlockSlot = parseInt(id);
             document.querySelectorAll('.hotbar-slot').forEach(s => s.classList.remove('active'));
-            document.querySelector(`.hotbar-slot[data-id="${id}"]`).classList.add('active');
+            document.querySelector(\`.hotbar-slot[data-id="\${id}"]\`).classList.add('active');
         }
 
         // Шум генерации ландшафта
@@ -302,7 +302,7 @@ const clientHTML = `
         }
 
         function buildChunk(cx, cz) {
-            const key = `${cx},${cz}`;
+            const key = \`\${cx},\${cz}\`;
             if (loadedChunks[key]) return;
 
             let chunkBlocks = [];
@@ -317,7 +317,7 @@ const clientHTML = `
 
                     for (let y = 0; y < CHUNK_HEIGHT; y++) {
                         let finalBlockType = 0;
-                        const blockKey = `${worldX},${y},${worldZ}`;
+                        const blockKey = \`\${worldX},\${y},\${worldZ}\`;
 
                         if (worldChanges[blockKey] !== undefined) {
                             finalBlockType = worldChanges[blockKey];
@@ -538,7 +538,7 @@ const clientHTML = `
                         dx = (dx / dist) * maxDist;
                         dy = (dy / dist) * maxDist;
                     }
-                    stick.style.transform = `translate(${dx}px, ${dy}px)`;
+                    stick.style.transform = \`translate(\${dx}px, \${dy}px)\`;
                     moveVector = { x: dx / maxDist, y: -dy / maxDist };
                 }, { passive: true });
 
@@ -640,7 +640,7 @@ const clientHTML = `
             let by = Math.round(pos.y);
             let bz = Math.round(pos.z);
 
-            const key = `${bx},${by},${bz}`;
+            const key = \`\${bx},\${by},\${bz}\`;
             if (worldChanges[key] !== undefined) {
                 return worldChanges[key] !== 0 && worldChanges[key] !== 8;
             }
@@ -946,7 +946,7 @@ const clientHTML = `
             }
 
             if (data.type === 'blockChange') {
-                const blockKey = `${data.x},${data.y},${data.z}`;
+                const blockKey = \`\${data.x},\${data.y},\${data.z}\`;
                 if (data.blockType === 0) {
                     delete worldChanges[blockKey];
                 } else {
@@ -955,7 +955,7 @@ const clientHTML = `
                 
                 let cx = Math.floor(data.x / CHUNK_SIZE);
                 let cz = Math.floor(data.z / CHUNK_SIZE);
-                let key = `${cx},${cz}`;
+                let key = \`\${cx},\${cz}\`;
                 if (loadedChunks[key]) {
                     scene.remove(loadedChunks[key].group);
                     delete loadedChunks[key];
@@ -1003,7 +1003,7 @@ const clientHTML = `
 
         function appendChatMessage(sender, text) {
             let msg = document.createElement('div');
-            msg.innerHTML = `<span style="color:#8a0000">&lt;${sender}&gt;</span> ${text}`;
+            msg.innerHTML = \`<span style="color:#8a0000">&lt;\${sender}&gt;</span> \${text}\`;
             chatMessages.appendChild(msg);
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
