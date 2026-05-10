@@ -14,7 +14,7 @@ let globalArticles = [
         id: "promo",
         title: "Портал запущен!",
         desc: "Система готова к работе.",
-        content: "Все модули CtalkeP активированы. Бесконечный 3D-Паркур запущен! Окончательно исправлена инверсия камеры, глаза перенесены на лицо персонажей."
+        content: "Все модули CtalkeP активированы. Бесконечный 3D-Паркур и 3D-Пешеход запущены! Исправлена инверсия камеры, глаза перенесены на лицо персонажей."
     }
 ];
 let chatMessages = [];      
@@ -49,7 +49,7 @@ app.get('/', (req, res) => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>CtalkeP | Premium Portal & 3D Parkour</title>
+    <title>CtalkeP | Premium Portal & 3D Games</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
@@ -77,9 +77,12 @@ app.get('/', (req, res) => {
             </div>
         </header>
 
-        <div class="max-w-6xl mx-auto w-full px-4 mt-6">
-            <button onclick="startParkourGame()" class="w-full bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white font-black py-4 rounded-xl text-lg uppercase tracking-widest hover:scale-[1.01] transition shadow-lg shadow-indigo-500/20 animate-pulse">
-                🎮 ВОЙТИ В ОНЛАЙН 3D ПАРКУР 🎮
+        <div class="max-w-6xl mx-auto w-full px-4 mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <button onclick="startGameMode('parkour')" class="w-full bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white font-black py-4 rounded-xl text-lg uppercase tracking-widest hover:scale-[1.01] transition shadow-lg shadow-indigo-500/20 animate-pulse">
+                🎮 ОНЛАЙН 3D ПАРКУР 🎮
+            </button>
+            <button onclick="startGameMode('crosswalk')" class="w-full bg-gradient-to-r from-emerald-600 via-green-600 to-teal-600 text-white font-black py-4 rounded-xl text-lg uppercase tracking-widest hover:scale-[1.01] transition shadow-lg shadow-emerald-500/20">
+                🚶‍♂️ ОНЛАЙН 3D ПЕШЕХОД 🚶‍♂️
             </button>
         </div>
 
@@ -168,15 +171,15 @@ app.get('/', (req, res) => {
                     <span class="text-sm font-bold text-blue-400" id="gameUserNick">Аноним</span>
                     <span class="text-xs bg-green-900/40 text-green-400 px-2 py-0.5 rounded border border-green-900/40" id="pingIndicator">СЕТЬ: OK</span>
                 </div>
-                <div class="text-[10px] text-zinc-500 hidden md:block">Кликни по экрану, чтобы захватить мышь. Выход — ESC.</div>
+                <div class="text-[10px] text-zinc-500 id="mouseLockTip">Кликни по экрану, чтобы захватить мышь. Выход — ESC.</div>
             </div>
             
             <div class="bg-black/95 px-6 py-3 rounded-lg border border-blue-500/30 flex flex-col items-center pointer-events-auto neon-border">
-                <span class="text-[10px] uppercase text-zinc-400 font-bold tracking-widest">Дистанция</span>
+                <span class="text-[10px] uppercase text-zinc-400 font-bold tracking-widest" id="gameScoreLabel">Дистанция</span>
                 <span class="text-xl font-black text-blue-400 font-mono" id="distanceMeter">0.0м</span>
             </div>
 
-            <button onclick="exitParkourGame()" class="bg-red-600 hover:bg-red-700 text-white font-bold px-5 py-2.5 rounded-lg text-sm transition pointer-events-auto shadow-lg shadow-red-900/20">
+            <button onclick="exitGame()" class="bg-red-600 hover:bg-red-700 text-white font-bold px-5 py-2.5 rounded-lg text-sm transition pointer-events-auto shadow-lg shadow-red-900/20">
                 ВЫЙТИ В ЛОББИ
             </button>
         </div>
@@ -188,7 +191,7 @@ app.get('/', (req, res) => {
                 <div id="joystickKnob" class="w-12 h-12 bg-blue-500/80 rounded-full"></div>
             </div>
             <div id="jumpButton" class="absolute bottom-12 right-12 w-20 h-20 bg-blue-600/60 active:bg-blue-600/90 border border-blue-500 rounded-full flex items-center justify-center pointer-events-auto shadow-lg shadow-blue-500/20 active:scale-95 transition">
-                <span class="text-white text-xs font-bold uppercase tracking-wider">UP</span>
+                <span class="text-white text-xs font-bold uppercase tracking-wider" id="mobileActionText">UP</span>
             </div>
         </div>
     </div>
@@ -377,12 +380,13 @@ app.get('/', (req, res) => {
         fetchMessages();
 
         // ==========================================
-        //       🎨 МОДУЛЬ 3D БЕСКОНЕЧНОГО ОНЛАЙН ПАРКУРА
+        //       🎨 ОБЩАЯ СИСТЕМА ДЛЯ 3D ИГР
         // ==========================================
         let scene, camera, renderer;
         let platforms = []; 
         let otherPlayers = {}; 
         let isGameActive = false;
+        let currentGameMode = 'parkour'; // 'parkour' или 'crosswalk'
         let multiplayerInterval = null;
 
         // Физика и позиция локального игрока
@@ -391,7 +395,7 @@ app.get('/', (req, res) => {
         let cameraRot = { pitch: 0, yaw: 0 }; 
         let isGrounded = false;
         
-        // Сложная сбалансированная физика
+        // Физические константы
         const gravity = -23.5;  
         const jumpStrength = 9.3; 
         const moveSpeed = 7.4;   
@@ -413,11 +417,29 @@ app.get('/', (req, res) => {
             isTouchDevice = true;
         }
 
-        function startParkourGame() {
+        function startGameMode(mode) {
+            currentGameMode = mode;
             document.getElementById('lobbyView').classList.add('hidden');
             document.getElementById('gameView').classList.remove('hidden');
             document.getElementById('gameUserNick').textContent = myNickname;
             isGameActive = true;
+
+            const jumpBtn = document.getElementById('jumpButton');
+            const actionText = document.getElementById('mobileActionText');
+            const scoreLabel = document.getElementById('gameScoreLabel');
+            
+            if (currentGameMode === 'crosswalk') {
+                scoreLabel.textContent = "Пройдено дорог";
+                if (isTouchDevice) {
+                    jumpBtn.classList.add('hidden'); // прячем прыжок в пешеходе
+                }
+            } else {
+                scoreLabel.textContent = "Дистанция";
+                if (isTouchDevice) {
+                    jumpBtn.classList.remove('hidden');
+                    actionText.textContent = "UP";
+                }
+            }
 
             if (isTouchDevice) {
                 document.getElementById('mobileControls').classList.remove('hidden');
@@ -438,7 +460,7 @@ app.get('/', (req, res) => {
             });
         }
 
-        function exitParkourGame() {
+        function exitGame() {
             isGameActive = false;
             clearInterval(multiplayerInterval);
             document.exitPointerLock();
@@ -456,11 +478,19 @@ app.get('/', (req, res) => {
             updateUI();
         }
 
+        // ==========================================
+        //       🚗 ПЕРЕМЕННЫЕ РЕЖИМА "ПЕШЕХОД"
+        // ==========================================
+        let roads = []; 
+        let vehicles = []; 
+        let nextRoadZ = -5;
+        const roadWidth = 60; // ширина трассы
+
         function init3D() {
             const container = document.getElementById('threeJsContainer');
             
             scene = new THREE.Scene();
-            scene.fog = new THREE.FogExp2('#050505', 0.012);
+            scene.fog = new THREE.FogExp2('#050505', 0.015);
 
             camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 1000);
             camera.position.set(playerPos.x, playerPos.y, playerPos.z);
@@ -471,19 +501,21 @@ app.get('/', (req, res) => {
             renderer.setClearColor('#050505', 1);
             container.appendChild(renderer.domElement);
 
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
             scene.add(ambientLight);
 
-            const dirLight = new THREE.DirectionalLight(0x3b82f6, 1.5);
+            const dirLight = new THREE.DirectionalLight(0x3b82f6, 1.8);
             dirLight.position.set(10, 50, -10);
             scene.add(dirLight);
 
-            const gridHelper = new THREE.GridHelper(600, 60, 0x3b82f6, 0x111111);
-            gridHelper.position.y = -20;
-            scene.add(gridHelper);
-
-            // Инициализируем генерацию первой пачки платформ
-            resetInfiniteMap();
+            if (currentGameMode === 'parkour') {
+                const gridHelper = new THREE.GridHelper(600, 60, 0x3b82f6, 0x111111);
+                gridHelper.position.y = -20;
+                scene.add(gridHelper);
+                resetInfiniteMap();
+            } else {
+                resetCrosswalkMap();
+            }
 
             let lastTime = performance.now();
             function animate(time) {
@@ -493,9 +525,14 @@ app.get('/', (req, res) => {
                 const dt = Math.min((time - lastTime) / 1000, 0.1); 
                 lastTime = time;
 
-                updatePlayerPhysics(dt);
+                if (currentGameMode === 'parkour') {
+                    updatePlayerPhysics(dt);
+                    updateInfiniteWorld();
+                } else {
+                    updateCrosswalkPhysics(dt);
+                    updateCrosswalkWorld();
+                }
                 updateCamera();
-                updateInfiniteWorld(); // Продлеваем мир на лету
                 renderOtherPlayers();
 
                 renderer.render(scene, camera);
@@ -505,29 +542,22 @@ app.get('/', (req, res) => {
             window.addEventListener('resize', onWindowResize);
         }
 
-        // === ПРОЦЕДУРНАЯ БЕСКОНЕЧНАЯ ГЕНЕРАЦИЯ (КЛИЕНТ-САЙД) ===
+        // === ПРОЦЕДУРНАЯ БЕСКОНЕЧНАЯ ГЕНЕРАЦИЯ (ПАРКУР) ===
         let nextPlatformZ = -3.5; 
         let lastPlatformX = 0;
         let lastPlatformY = 0;
 
         function resetInfiniteMap() {
-            // Удаляем всё
             platforms.forEach(p => scene.remove(p.mesh));
             platforms = [];
-
-            // Спавн-платформа
             createPlatform(0, 0, 0, 6, 0.8, 6, "#3b82f6");
-
             nextPlatformZ = -3.5;
             lastPlatformX = 0;
             lastPlatformY = 0;
-            mapSeed = 98765; // одинаковый сид гарантирует идентичный паркур
-
-            // Спавним стартовые 20 блоков
+            mapSeed = 98765;
             for (let i = 0; i < 20; i++) {
                 spawnNextBlock();
             }
-
             respawnPlayer();
         }
 
@@ -542,15 +572,10 @@ app.get('/', (req, res) => {
             const mesh = new THREE.Mesh(geometry, material);
             mesh.position.set(x, y, z);
             scene.add(mesh);
-
-            platforms.push({
-                mesh: mesh,
-                x, y, z, w, h, d
-            });
+            platforms.push({ mesh, x, y, z, w, h, d });
         }
 
         function spawnNextBlock() {
-            // Сложный паркур: Расстояние строго от 3.3 до 4.4 метров по Z
             let distZ = -(localRandom() * 1.1 + 3.3); 
             let distX = (localRandom() - 0.5) * 3.8; 
             let distY = (localRandom() - 0.4) * 1.3; 
@@ -559,14 +584,12 @@ app.get('/', (req, res) => {
             lastPlatformY += distY;
             nextPlatformZ += distZ;
 
-            // Лимиты высоты
             if (lastPlatformY < -5) lastPlatformY = -3;
             if (lastPlatformY > 5) lastPlatformY = 2;
 
             const colors = ["#ef4444", "#10b981", "#8b5cf6", "#f59e0b", "#ec4899", "#06b6d4"];
             const color = colors[Math.floor(localRandom() * colors.length)];
 
-            // Блоки делаем тоньше (2.0 x 2.0), чтобы прыгать было хардкорнее и интереснее!
             createPlatform(
                 parseFloat(lastPlatformX.toFixed(2)),
                 parseFloat(lastPlatformY.toFixed(2)),
@@ -581,7 +604,6 @@ app.get('/', (req, res) => {
                 for (let i = 0; i < 10; i++) {
                     spawnNextBlock();
                 }
-
                 const playerPassedZ = playerPos.z + 50;
                 platforms = platforms.filter(p => {
                     if (p.z > playerPassedZ && p.z !== 0) { 
@@ -591,11 +613,209 @@ app.get('/', (req, res) => {
                     return true;
                 });
             }
-
-            // Обновляем счётчик расстояния сверху
             const currentDistance = Math.max(0, -playerPos.z);
             document.getElementById('distanceMeter').textContent = currentDistance.toFixed(1) + "м";
         }
+
+        // ==========================================
+        //       🎮 МЕХАНИКА РЕЖИМА "ПЕШЕХОД"
+        // ==========================================
+        function resetCrosswalkMap() {
+            roads.forEach(r => scene.remove(r.mesh));
+            vehicles.forEach(v => scene.remove(v.mesh));
+            roads = [];
+            vehicles = [];
+            nextRoadZ = -5;
+            mapSeed = 54321;
+
+            // Начальная безопасная зона (газон)
+            createRoadSegment(0, 10, "#10b981", false); // Безопасная зона
+
+            // Генерируем стартовые дороги
+            for (let i = 0; i < 15; i++) {
+                spawnNextRoad();
+            }
+            respawnPlayer();
+        }
+
+        function createRoadSegment(z, depth, color, isDanger) {
+            const geometry = new THREE.BoxGeometry(roadWidth, 1.0, depth);
+            const material = new THREE.MeshPhongMaterial({
+                color: new THREE.Color(color),
+                shininess: 10
+            });
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.position.set(0, -0.5, z);
+            scene.add(mesh);
+
+            roads.push({
+                mesh: mesh,
+                z: z,
+                depth: depth,
+                isDanger: isDanger
+            });
+        }
+
+        function spawnNextRoad() {
+            const depth = 4.0; // ширина полосы движения
+            const isDanger = localRandom() > 0.25; // 75% вероятность дороги с машинами
+            const zPos = nextRoadZ - (depth / 2);
+            nextRoadZ -= depth;
+
+            if (isDanger) {
+                createRoadSegment(zPos, depth, "#1f2937", true); // Асфальтовая дорога
+
+                // Характеристики полосы движения
+                const speed = (localRandom() * 8.0 + 7.0); // сбалансированная скорость
+                const direction = localRandom() > 0.5 ? 1 : -1;
+                const carColor = ["#ef4444", "#3b82f6", "#f59e0b", "#ec4899", "#8b5cf6", "#e11d48"][Math.floor(localRandom() * 6)];
+
+                // Создаем 3-4 машины на полосу с безопасными зазорами
+                for (let j = 0; j < 3; j++) {
+                    const startX = -roadWidth/2 + (localRandom() * 15) + (j * 20);
+                    createVehicle(startX, zPos, speed, direction, carColor);
+                }
+            } else {
+                createRoadSegment(zPos, depth, "#047857", false); // Безопасный зелёный островок
+            }
+        }
+
+        function createVehicle(startX, z, speed, direction, color) {
+            const carWidth = 3.2;
+            const carHeight = 1.3;
+            const carLength = 1.8;
+
+            const carGroup = new THREE.Group();
+
+            // Кузов машины
+            const bodyGeo = new THREE.BoxGeometry(carWidth, carHeight, carLength);
+            const bodyMat = new THREE.MeshPhongMaterial({ color: color, shininess: 50 });
+            const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+            bodyMesh.position.y = carHeight / 2;
+            carGroup.add(bodyMesh);
+
+            // Кабина машины
+            const cabinGeo = new THREE.BoxGeometry(carWidth * 0.6, carHeight * 0.6, carLength * 0.95);
+            const cabinMat = new THREE.MeshPhongMaterial({ color: "#111827", shininess: 80 });
+            const cabinMesh = new THREE.Mesh(cabinGeo, cabinMat);
+            cabinMesh.position.set(-carWidth * 0.1, carHeight, 0);
+            carGroup.add(cabinMesh);
+
+            carGroup.position.set(startX, 0, z);
+            scene.add(carGroup);
+
+            vehicles.push({
+                mesh: carGroup,
+                z: z,
+                speed: speed,
+                dir: direction,
+                width: carWidth,
+                length: carLength
+            });
+        }
+
+        function updateCrosswalkPhysics(dt) {
+            // В пешеходе нет прыжков — гравитация прижимает игрока к плоскости
+            playerVelocity.y += gravity * dt;
+
+            let moveX = 0;
+            let moveZ = 0;
+
+            if (!isTouchDevice) {
+                if (keys.w) moveZ -= 1;
+                if (keys.s) moveZ += 1;
+                if (keys.a) moveX -= 1;
+                if (keys.d) moveX += 1;
+            } else {
+                moveX = touchMoveVector.x;
+                moveZ = touchMoveVector.z;
+            }
+
+            const sin = Math.sin(cameraRot.yaw);
+            const cos = Math.cos(cameraRot.yaw);
+            
+            let worldMoveX = moveX * cos + moveZ * sin;
+            let worldMoveZ = -moveX * sin + moveZ * cos;
+
+            const length = Math.sqrt(worldMoveX * worldMoveX + worldMoveZ * worldMoveZ);
+            if (length > 0) {
+                worldMoveX = (worldMoveX / length) * moveSpeed;
+                worldMoveZ = (worldMoveZ / length) * moveSpeed;
+            }
+
+            playerPos.x += worldMoveX * dt;
+            playerPos.z += worldMoveZ * dt;
+            playerPos.y += playerVelocity.y * dt;
+
+            // Столкновение с плоскостью земли (всегда Y=0)
+            if (playerPos.y <= 0) {
+                playerPos.y = 0;
+                playerVelocity.y = 0;
+                isGrounded = true;
+            }
+
+            // Барьеры ширины дороги (чтобы игрок не убегал за карту)
+            if (playerPos.x < -roadWidth/2 + 1) playerPos.x = -roadWidth/2 + 1;
+            if (playerPos.x > roadWidth/2 - 1) playerPos.x = roadWidth/2 - 1;
+
+            // ПРОВЕРКА КОЛЛИЗИЙ С МАШИНАМИ (СМЕРТЬ И СБРОС)
+            const playerRadius = 0.45;
+            vehicles.forEach(v => {
+                const dx = Math.abs(playerPos.x - v.mesh.position.x);
+                const dz = Math.abs(playerPos.z - v.mesh.position.z);
+                
+                // Если произошло столкновение (AABB коллизия)
+                if (dx < (v.width/2 + playerRadius) && dz < (v.length/2 + playerRadius)) {
+                    respawnPlayer();
+                }
+            });
+        }
+
+        function updateCrosswalkWorld() {
+            // Двигаем машины
+            vehicles.forEach(v => {
+                v.mesh.position.x += v.speed * v.dir * 0.016;
+
+                // Бесшовный телепорт машин (выезжают из невидимости за краем тумана)
+                const bound = roadWidth / 2 + 5;
+                if (v.dir === 1 && v.mesh.position.x > bound) {
+                    v.mesh.position.x = -bound;
+                } else if (v.dir === -1 && v.mesh.position.x < -bound) {
+                    v.mesh.position.x = bound;
+                }
+            });
+
+            // Генерация дорог впереди
+            const triggerZ = nextRoadZ + 40;
+            if (playerPos.z < triggerZ) {
+                for (let i = 0; i < 8; i++) {
+                    spawnNextRoad();
+                }
+
+                // Оптимизация: Удаляем старые пройденные дороги и машины
+                const playerPassedZ = playerPos.z + 40;
+                roads = roads.filter(r => {
+                    if (r.z > playerPassedZ && r.z !== 0) {
+                        scene.remove(r.mesh);
+                        return false;
+                    }
+                    return true;
+                });
+
+                vehicles = vehicles.filter(v => {
+                    if (v.z > playerPassedZ) {
+                        scene.remove(v.mesh);
+                        return false;
+                    }
+                    return true;
+                });
+            }
+
+            // Счётчик пройденных дорог (вычисляется на основе оси Z)
+            const rawScore = Math.max(0, -playerPos.z / 4);
+            document.getElementById('distanceMeter').textContent = Math.floor(rawScore) + " дор.";
+        }
+
 
         // === УПРАВЛЕНИЕ И ОСЬ КАМЕРЫ (МАТЕМАТИКА БЕЗ ИНВЕРСИЙ) ===
         function setupPhysicsEvents() {
@@ -621,23 +841,24 @@ app.get('/', (req, res) => {
         }
 
         function handleMouseMove(e) {
-            // ИДЕАЛЬНОЕ УПРАВЛЕНИЕ: Движение мыши строго соответствует реальным осям
             if (document.pointerLockElement || e.buttons === 1) {
                 const sens = 0.0022;
-                cameraRot.yaw -= e.movementX * sens; // Влево/Вправо
-                cameraRot.pitch -= e.movementY * sens; // Вверх/Вниз
-                
-                // Ограничиваем вертикальный обзор
+                cameraRot.yaw -= e.movementX * sens; 
+                cameraRot.pitch -= e.movementY * sens; 
                 cameraRot.pitch = Math.max(-Math.PI / 2.05, Math.min(Math.PI / 2.05, cameraRot.pitch));
             }
         }
 
         function respawnPlayer() {
-            playerPos = { x: 0, y: 1.5, z: 0 };
+            playerPos = { x: 0, y: currentGameMode === 'parkour' ? 1.5 : 0, z: 0 };
             playerVelocity = { x: 0, y: 0, z: 0 };
             cameraRot = { pitch: 0, yaw: 0 };
-            if (isGameActive && platforms.length > 30) {
-                resetInfiniteMap();
+            if (isGameActive) {
+                if (currentGameMode === 'parkour' && platforms.length > 30) {
+                    resetInfiniteMap();
+                } else if (currentGameMode === 'crosswalk' && roads.length > 25) {
+                    resetCrosswalkMap();
+                }
             }
         }
 
@@ -657,11 +878,9 @@ app.get('/', (req, res) => {
                 moveZ = touchMoveVector.z;
             }
 
-            // Классическая математика движения вперед-назад относительно обзора
             const sin = Math.sin(cameraRot.yaw);
             const cos = Math.cos(cameraRot.yaw);
             
-            // Движение вперед — это вглубь отрицательного Z
             let worldMoveX = moveX * cos + moveZ * sin;
             let worldMoveZ = -moveX * sin + moveZ * cos;
 
@@ -675,7 +894,6 @@ app.get('/', (req, res) => {
             playerPos.z += worldMoveZ * dt;
             playerPos.y += playerVelocity.y * dt;
 
-            // ПРОВЕРКА КОЛЛИЗИЙ (СВЕРХНАДЁЖНАЯ)
             isGrounded = false;
             const playerHeight = 1.3;
             const playerRadius = 0.38;
@@ -704,19 +922,17 @@ app.get('/', (req, res) => {
                 mobileJumpPressed = false; 
             }
 
-            // ПАДЕНИЕ В БЕЗДНУ (СПАВН)
             if (playerPos.y < -18) {
                 respawnPlayer();
             }
         }
 
         function updateCamera() {
-            // ФОРМУЛА СТАНДАРТНОГО FPS-НАПРАВЛЕНИЯ (БЕЗ ИНВЕРСИИ СТОРОН)
-            camera.position.set(playerPos.x, playerPos.y, playerPos.z);
+            camera.position.set(playerPos.x, playerPos.y + (currentGameMode === 'crosswalk' ? 1.4 : 0), playerPos.z);
             
             const target = new THREE.Vector3();
             target.x = playerPos.x - Math.sin(cameraRot.yaw) * Math.cos(cameraRot.pitch);
-            target.y = playerPos.y + Math.sin(cameraRot.pitch);
+            target.y = (playerPos.y + (currentGameMode === 'crosswalk' ? 1.4 : 0)) + Math.sin(cameraRot.pitch);
             target.z = playerPos.z - Math.cos(cameraRot.yaw) * Math.cos(cameraRot.pitch);
             
             camera.lookAt(target);
@@ -731,7 +947,9 @@ app.get('/', (req, res) => {
 
             jumpButton.addEventListener('touchstart', (e) => {
                 e.preventDefault();
-                mobileJumpPressed = true;
+                if (currentGameMode === 'parkour') {
+                    mobileJumpPressed = true;
+                }
             });
 
             let touchStartPoint = { x: 0, y: 0 };
@@ -751,8 +969,8 @@ app.get('/', (req, res) => {
                         const dy = e.touches[i].clientY - touchStartPoint.y;
 
                         const sens = 0.005;
-                        cameraRot.yaw -= dx * sens; // Движение пальца вправо крутит камеру вправо
-                        cameraRot.pitch -= dy * sens; // Движение пальца вверх крутит камеру вверх
+                        cameraRot.yaw -= dx * sens; 
+                        cameraRot.pitch -= dy * sens; 
                         cameraRot.pitch = Math.max(-Math.PI / 2.05, Math.min(Math.PI / 2.05, cameraRot.pitch));
 
                         touchStartPoint.x = e.touches[i].clientX;
@@ -874,14 +1092,13 @@ app.get('/', (req, res) => {
                     const headMesh = new THREE.Mesh(headGeo, headMat);
                     headGroup.add(headMesh);
 
-                    // === МИЛЫЕ ГЛАЗКИ (ИСПРАВЛЕНО: СМОТРЯТ ВПЕРЁД, А НЕ НА ЗАТЫЛОК) ===
+                    // ГЛАЗКИ (Смотрят вперед по оси -Z)
                     const eyeGeo = new THREE.SphereGeometry(0.06, 8, 8);
                     const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
                     
                     const pupilGeo = new THREE.SphereGeometry(0.03, 8, 8);
                     const pupilMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
 
-                    // Левый глаз (z = -0.22, смотрит строго вперед по оси -Z)
                     const leftEye = new THREE.Group();
                     const leftWhite = new THREE.Mesh(eyeGeo, eyeMat);
                     const leftPupil = new THREE.Mesh(pupilGeo, pupilMat);
@@ -890,7 +1107,6 @@ app.get('/', (req, res) => {
                     leftEye.position.set(-0.11, 0.05, -0.22); 
                     headGroup.add(leftEye);
 
-                    // Правый глаз (z = -0.22, смотрит строго вперед по оси -Z)
                     const rightEye = new THREE.Group();
                     const rightWhite = new THREE.Mesh(eyeGeo, eyeMat);
                     const rightPupil = new THREE.Mesh(pupilGeo, pupilMat);
@@ -901,7 +1117,6 @@ app.get('/', (req, res) => {
 
                     group.add(headGroup);
 
-                    // НИКНЕЙМ НАД ГОЛОВОЙ (Развернут на 180 градусов, чтобы читался прямо)
                     const nickSprite = createNicknameTexture(nick);
                     nickSprite.position.set(0, 1.95, 0); 
                     group.add(nickSprite);
@@ -930,10 +1145,9 @@ app.get('/', (req, res) => {
                 const group = player.group;
 
                 group.position.x += (player.targetPos.x - group.position.x) * lerpFactor;
-                group.position.y += (player.targetPos.y - 1.4 - group.position.y) * lerpFactor; 
+                group.position.y += (player.targetPos.y - (currentGameMode === 'crosswalk' ? 0 : 1.4) - group.position.y) * lerpFactor; 
                 group.position.z += (player.targetPos.z - group.position.z) * lerpFactor;
 
-                // Синхронизируем вращение тела и головы в пространстве
                 group.rotation.y += (player.targetRy - group.rotation.y) * lerpFactor;
                 player.headMesh.rotation.x += (player.targetRx - player.headMesh.rotation.x) * lerpFactor;
             }
@@ -1085,5 +1299,5 @@ app.post('/api/parkour/sync', (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`[CtalkeP] Бесконечный 3D-Паркур успешно запущен и исправлен на порту: ${PORT}`);
+    console.log(`[CtalkeP] Бесконечные 3D-игры запущены на порту: ${PORT}`);
 });
