@@ -1,35 +1,74 @@
 const express = require('express');
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
+// === СИНХРОННОЕ ЧТЕНИЕ ТЕКСТОВ ДЛЯ ТАБЛИЧЕК ===
+const textsFilePath = path.join(__dirname, 'texts.txt');
+let signTexts = [
+    "Осторожно, сложный прыжок!",
+    "CtalkeP — лучший проект 2026 года!",
+    "Не смотри вниз!",
+    "Кто прочитал, тот упадет (шутка)",
+    "Админ следит за тобой...",
+    "Баг или фича?",
+    "Сделай тройной прыжок!",
+    "Здесь был Дефф"
+];
+
+// Создаем файл по умолчанию, если его нет
+if (!fs.existsSync(textsFilePath)) {
+    fs.writeFileSync(textsFilePath, signTexts.join('\n'), 'utf-8');
+} else {
+    try {
+        const fileContent = fs.readFileSync(textsFilePath, 'utf-8');
+        signTexts = fileContent.split('\n').map(t => t.trim()).filter(t => t.length > 0);
+    } catch (e) {
+        console.log('[CtalkeP] Не удалось прочитать texts.txt, используем дефолтные тексты.');
+    }
+}
+
 // === ХРАНИЛИЩА В ПАМЯТИ ===
 let currentTrap = null;     
 let lastResult = null;      
+
+// Статьи теперь хранят время создания
 let globalArticles = [
     {
         id: "promo",
         title: "Портал запущен!",
         desc: "Система готова к работе.",
-        content: "Все модули CtalkeP активированы. Бесконечный 3D-Паркур запущен! Окончательно исправлена инверсия камеры, глаза перенесены на лицо персонажей."
+        content: "Все модули CtalkeP активированы. Бесконечный 3D-Паркур запущен! Исправлен обзор, добавлены облака, музыка, сквозные таблички и чат в игре.",
+        createdAt: Date.now()
     }
 ];
 let chatMessages = [];      
-
-// === МУЛЬТИПЛЕЕР ИГРЫ ===
 let onlinePlayers = {}; 
 
+// === АВТООЧИСТКА СТАТЕЙ И ОНЛАЙНА ===
 setInterval(() => {
     const now = Date.now();
+    
+    // 1. Очистка статей старше 1 часа (3600000 миллисекунд)
+    const beforeLength = globalArticles.length;
+    globalArticles = globalArticles.filter(art => {
+        // Промо-статью не удаляем, чтобы список не пустовал всегда
+        if (art.id === "promo") return true;
+        return (now - art.createdAt) < 3600000;
+    });
+
+    // 2. Очистка неактивных игроков (офлайн дольше 7 секунд)
     for (const nick in onlinePlayers) {
         if (now - onlinePlayers[nick].lastSeen > 7000) {
             delete onlinePlayers[nick];
         }
     }
-}, 3000);
+}, 5000);
 
 // === АВТОПИНГЕР ===
 const APP_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
@@ -126,7 +165,7 @@ app.get('/', (req, res) => {
                 </div>
 
                 <div class="bg-[#0a0a0a] p-5 rounded-xl border border-zinc-900 neon-border">
-                    <h2 class="text-md font-bold mb-3 text-blue-400 tracking-wide uppercase">Публичные статьи</h2>
+                    <h2 class="text-md font-bold mb-3 text-blue-400 tracking-wide uppercase">Публичные статьи (Живут 1 час)</h2>
                     <div id="articlesList" class="space-y-3 max-h-64 overflow-y-auto pr-1"></div>
                 </div>
             </div>
@@ -153,24 +192,31 @@ app.get('/', (req, res) => {
                 </div>
 
                 <div class="bg-[#0a0a0a] p-5 rounded-xl border border-zinc-900 neon-border">
-                    <h2 class="text-md font-bold mb-2 text-zinc-400 tracking-wide uppercase">Активность профиля</h2>
-                    <div id="statsBox" class="text-sm"></div>
+                    <h2 class="text-md font-bold mb-2 text-zinc-400 tracking-wide uppercase">Кто сейчас в сети 🎮</h2>
+                    <div id="statsBox" class="text-sm space-y-1.5 max-h-24 overflow-y-auto"></div>
                 </div>
             </div>
         </main>
     </div>
 
-    <div id="gameView" class="hidden fixed inset-0 z-50 bg-[#020202] select-none flex flex-col overflow-hidden">
-        <div class="absolute top-4 left-4 right-4 flex justify-between items-center z-50 pointer-events-none">
-            <div class="bg-black/95 px-4 py-2.5 rounded-lg border border-zinc-800 flex flex-col gap-1 pointer-events-auto">
-                <div class="flex items-center gap-3">
-                    <span class="text-xs text-zinc-400">Игрок:</span>
-                    <span class="text-sm font-bold text-blue-400" id="gameUserNick">Аноним</span>
-                    <span class="text-xs bg-green-900/40 text-green-400 px-2 py-0.5 rounded border border-green-900/40" id="pingIndicator">СЕТЬ: OK</span>
-                </div>
-                <div class="text-[10px] text-zinc-500 hidden md:block">Кликни по экрану, чтобы захватить мышь. Выход — ESC.</div>
-            </div>
+    <div id="gameView" class="hidden fixed inset-0 z-50 bg-[#e0f2fe] select-none flex flex-col overflow-hidden">
+        
+        <div class="absolute top-4 left-4 z-50 flex flex-col items-start gap-2 pointer-events-none">
+            <button onclick="toggleGameChat()" class="bg-black/95 hover:bg-zinc-900 border border-zinc-800 text-white font-bold px-4 py-2 rounded-lg text-xs tracking-wider transition pointer-events-auto flex items-center gap-2">
+                <span>💬 ЧАТ ИГРЫ</span>
+                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+            </button>
             
+            <div id="gameChatWindow" class="hidden w-72 h-48 bg-black/95 border border-zinc-800 rounded-lg flex flex-col p-2.5 pointer-events-auto">
+                <div id="gameChatContent" class="flex-grow overflow-y-auto text-xs space-y-1.5 mb-2 pr-1 text-zinc-300"></div>
+                <div class="flex gap-1.5">
+                    <input type="text" id="gameChatInput" placeholder="Напиши игрокам..." class="flex-grow bg-zinc-900 border border-zinc-800 text-xs px-2 py-1.5 rounded text-white outline-none">
+                    <button onclick="sendGameChatMessage()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-2.5 rounded text-xs">🚀</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="absolute top-4 right-4 flex items-center gap-4 z-50 pointer-events-none">
             <div class="bg-black/95 px-6 py-3 rounded-lg border border-blue-500/30 flex flex-col items-center pointer-events-auto neon-border">
                 <span class="text-[10px] uppercase text-zinc-400 font-bold tracking-widest">Дистанция</span>
                 <span class="text-xl font-black text-blue-400 font-mono" id="distanceMeter">0.0м</span>
@@ -209,9 +255,11 @@ app.get('/', (req, res) => {
         let lastVisitDate = localStorage.getItem('lastVisitDate');
         let localArticles = JSON.parse(localStorage.getItem('saved_articles')) || [];
 
-        document.getElementById('nicknameInput').value = myNickname.startsWith('Игрок_') ? '' : myNickname;
-        updateUI();
+        // Локальная копия игрового чата (чистится при каждом входе)
+        let gameChatHistory = [];
 
+        document.getElementById('nicknameInput').value = myNickname.startsWith('Игрок_') ? '' : myNickname;
+        
         const today = new Date().toDateString();
         if (lastVisitDate !== today) {
             dailyVisits += 1;
@@ -219,16 +267,41 @@ app.get('/', (req, res) => {
             localStorage.setItem('lastVisitDate', today);
         }
 
-        function updateUI() {
+        // Обновление онлайна игроков в Лобби
+        async function updateLobbyOnline() {
             document.getElementById('balanceDisplay').textContent = 'Баланс: $' + myBalance.toFixed(2);
-            document.getElementById('statsBox').innerHTML = '<div class="flex justify-between items-center"><span>👤 ' + myNickname + '</span><span class="text-emerald-400 font-bold">' + dailyVisits + ' вх.</span></div>';
+            try {
+                // Пингуем синхронизацию просто чтобы получить актуальный список
+                const res = await fetch('/api/parkour/sync', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ nickname: myNickname, lobbyOnly: true })
+                });
+                const players = await res.json();
+                
+                const statsBox = document.getElementById('statsBox');
+                statsBox.innerHTML = '';
+                
+                let count = 0;
+                for (const nick in players) {
+                    count++;
+                    const div = document.createElement('div');
+                    div.className = "flex justify-between items-center bg-zinc-950 p-1.5 rounded border border-zinc-900";
+                    div.innerHTML = \`<span class="text-blue-400 font-medium">👤 \${nick}</span><span class="text-xs text-green-500">В игре 🎮</span>\`;
+                    statsBox.appendChild(div);
+                }
+                if (count === 0) {
+                    statsBox.innerHTML = '<div class="text-xs text-zinc-500 italic">На сервере пока никого нет...</div>';
+                }
+            } catch(e) {}
         }
+        setInterval(updateLobbyOnline, 2500);
 
         function saveProfile() {
             const input = document.getElementById('nicknameInput').value.trim();
             myNickname = input || 'Игрок_' + Math.floor(Math.random()*900 + 100);
             localStorage.setItem('nickname', myNickname);
-            updateUI();
+            updateLobbyOnline();
             alert('Профиль обновлен!');
         }
 
@@ -315,7 +388,7 @@ app.get('/', (req, res) => {
             } catch (e) {}
             myBalance += 0.50;
             localStorage.setItem('balance', myBalance);
-            updateUI();
+            updateLobbyOnline();
             document.getElementById('artTitle').value = '';
             document.getElementById('artDesc').value = '';
             document.getElementById('artContent').value = '';
@@ -369,7 +442,7 @@ app.get('/', (req, res) => {
             hasTag = true;
             localStorage.setItem('balance', myBalance);
             localStorage.setItem('hasTag', 'true');
-            updateUI();
+            updateLobbyOnline();
             alert('Тэг куплен!');
         }
 
@@ -377,21 +450,21 @@ app.get('/', (req, res) => {
         fetchMessages();
 
         // ==========================================
-        //       🎨 МОДУЛЬ 3D БЕСКОНЕЧНОГО ОНЛАЙН ПАРКУРА
+        //       🎮 МОДУЛЬ 3D БЕСКОНЕЧНОГО ОНЛАЙН ПАРКУРА
         // ==========================================
         let scene, camera, renderer;
         let platforms = []; 
         let otherPlayers = {}; 
+        let localClouds = []; // Локальные красивые облака
+        let signBoards = [];   // Текстовые парящие таблички
         let isGameActive = false;
         let multiplayerInterval = null;
 
-        // Физика и позиция локального игрока
         let playerPos = { x: 0, y: 1.5, z: 0 };
         let playerVelocity = { x: 0, y: 0, z: 0 };
         let cameraRot = { pitch: 0, yaw: 0 }; 
         let isGrounded = false;
         
-        // Сложная сбалансированная физика
         const gravity = -23.5;  
         const jumpStrength = 9.3; 
         const moveSpeed = 7.4;   
@@ -402,7 +475,6 @@ app.get('/', (req, res) => {
         let joystickStart = { x: 0, y: 0 };
         let touchMoveVector = { x: 0, z: 0 };
 
-        // Локальный рандомайзер для бесконечной генерации
         let mapSeed = 98765;
         function localRandom() {
             let x = Math.sin(mapSeed++) * 10000;
@@ -413,10 +485,72 @@ app.get('/', (req, res) => {
             isTouchDevice = true;
         }
 
+        // --- ВЕФ-АУДИО СИНТЕЗАТОР БЕСКОНЕЧНОЙ МУЗЫКИ ---
+        let audioCtx = null;
+        let musicInterval = null;
+        function startProceduralMusic() {
+            try {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                let tempo = 120;
+                let step = 0;
+                // Весёлая мажорная ретро гамма
+                let melody = [60, 64, 67, 72, 69, 67, 64, 62, 60, 67, 72, 76, 74, 72, 67, 69];
+
+                musicInterval = setInterval(() => {
+                    if (!isGameActive || audioCtx.state === 'suspended') return;
+                    
+                    let note = melody[step % melody.length];
+                    // Бас-бочка на каждый 4-й шаг
+                    if (step % 4 === 0) playKick();
+                    // Мелодия играет с пропуском каждого 3-го такта для синкопы
+                    if (step % 3 !== 0) playSynthNote(note);
+
+                    step++;
+                }, 60000 / tempo / 2); // 16-е доли
+            } catch (e) {
+                console.log("Аудио недоступно до первого клика.");
+            }
+        }
+
+        function playSynthNote(midi) {
+            let freq = 440 * Math.pow(2, (midi - 69) / 12);
+            let osc = audioCtx.createOscillator();
+            let gain = audioCtx.createGain();
+            
+            osc.type = 'triangle'; // Мягкий винтажный звук
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+
+            gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.35);
+        }
+
+        function playKick() {
+            let osc = audioCtx.createOscillator();
+            let gain = audioCtx.createGain();
+            osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.12);
+            gain.gain.setValueAtTime(0.18, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.12);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.13);
+        }
+
         function startParkourGame() {
             document.getElementById('lobbyView').classList.add('hidden');
             document.getElementById('gameView').classList.remove('hidden');
             document.getElementById('gameUserNick').textContent = myNickname;
+            
+            // Чистим игровой чат перед новым заходом
+            gameChatHistory = [];
+            document.getElementById('gameChatContent').innerHTML = '';
+
             isGameActive = true;
 
             if (isTouchDevice) {
@@ -429,18 +563,23 @@ app.get('/', (req, res) => {
             init3D();
             setupPhysicsEvents();
             startMultiplayerLoop();
+            startProceduralMusic();
         }
 
         function setupPointerLock() {
             const container = document.getElementById('threeJsContainer');
             container.addEventListener('click', () => {
                 container.requestPointerLock();
+                if (audioCtx && audioCtx.state === 'suspended') {
+                    audioCtx.resume();
+                }
             });
         }
 
         function exitParkourGame() {
             isGameActive = false;
             clearInterval(multiplayerInterval);
+            clearInterval(musicInterval);
             document.exitPointerLock();
             
             window.removeEventListener('keydown', handleKeyDown);
@@ -453,14 +592,59 @@ app.get('/', (req, res) => {
 
             document.getElementById('gameView').classList.add('hidden');
             document.getElementById('lobbyView').classList.remove('hidden');
-            updateUI();
+            updateLobbyOnline();
         }
+
+        // === ЧАТ ВНУТРИ ИГРЫ ===
+        function toggleGameChat() {
+            const chatWin = document.getElementById('gameChatWindow');
+            chatWin.classList.toggle('hidden');
+            if (!chatWin.classList.contains('hidden')) {
+                document.getElementById('gameChatInput').focus();
+            }
+        }
+
+        async function sendGameChatMessage() {
+            const input = document.getElementById('gameChatInput');
+            const text = input.value.trim();
+            if(!text) return;
+            await fetch('/api/chat/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: myNickname, text: text, tag: hasTag ? '[СТ]' : '' })
+            });
+            input.value = '';
+        }
+
+        // Обновляем сообщения внутри игры
+        async function fetchGameChatMessages() {
+            if (!isGameActive) return;
+            try {
+                const res = await fetch('/api/chat/messages');
+                const data = await res.json();
+                const container = document.getElementById('gameChatContent');
+                
+                if (data.length !== gameChatHistory.length) {
+                    gameChatHistory = data;
+                    container.innerHTML = '';
+                    data.forEach(msg => {
+                        const div = document.createElement('div');
+                        const tagSpan = msg.tag ? '<span class="text-yellow-400 font-bold mr-1">' + msg.tag + '</span>' : '';
+                        div.innerHTML = tagSpan + '<strong class="text-blue-400">' + msg.username + ':</strong> <span class="text-white">' + msg.text + '</span>';
+                        container.appendChild(div);
+                    });
+                    container.scrollTop = container.scrollHeight;
+                }
+            } catch(e) {}
+        }
+        setInterval(fetchGameChatMessages, 1500);
 
         function init3D() {
             const container = document.getElementById('threeJsContainer');
             
             scene = new THREE.Scene();
-            scene.fog = new THREE.FogExp2('#050505', 0.012);
+            // Красивый туман (внизу плавно переходит в чисто-белый/небесно-голубой, без черноты!)
+            scene.fog = new THREE.FogExp2('#e0f2fe', 0.009);
 
             camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 1000);
             camera.position.set(playerPos.x, playerPos.y, playerPos.z);
@@ -468,19 +652,18 @@ app.get('/', (req, res) => {
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-            renderer.setClearColor('#050505', 1);
+            renderer.setClearColor('#e0f2fe', 1); // Дневное небо светлое!
             container.appendChild(renderer.domElement);
 
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.85); // Много света!
             scene.add(ambientLight);
 
-            const dirLight = new THREE.DirectionalLight(0x3b82f6, 1.5);
-            dirLight.position.set(10, 50, -10);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.95);
+            dirLight.position.set(20, 100, 20);
             scene.add(dirLight);
 
-            const gridHelper = new THREE.GridHelper(600, 60, 0x3b82f6, 0x111111);
-            gridHelper.position.y = -20;
-            scene.add(gridHelper);
+            // Создаем красивую процедурную генерацию облаков на небе (локально, без нагрузки)
+            generatePrettyClouds();
 
             // Инициализируем генерацию первой пачки платформ
             resetInfiniteMap();
@@ -495,7 +678,8 @@ app.get('/', (req, res) => {
 
                 updatePlayerPhysics(dt);
                 updateCamera();
-                updateInfiniteWorld(); // Продлеваем мир на лету
+                updateInfiniteWorld(); 
+                animateClouds(dt);    // Анимируем движение облаков
                 renderOtherPlayers();
 
                 renderer.render(scene, camera);
@@ -505,25 +689,80 @@ app.get('/', (req, res) => {
             window.addEventListener('resize', onWindowResize);
         }
 
-        // === ПРОЦЕДУРНАЯ БЕСКОНЕЧНАЯ ГЕНЕРАЦИЯ (КЛИЕНТ-САЙД) ===
+        // === ПРОЦЕДУРНЫЕ КРАСИВЫЕ ОБЛАКА ===
+        function generatePrettyClouds() {
+            localClouds = [];
+            // Спавним 25 больших кучевых облаков на небесах (высота 35-50 метров)
+            for (let i = 0; i < 25; i++) {
+                const cloudGroup = new THREE.Group();
+                const cloudSize = Math.random() * 6 + 4;
+                
+                // Каждое облако собирается из 4-6 пушистых сфер разного диаметра
+                const puffCount = Math.floor(Math.random() * 3 + 3);
+                const puffMat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 });
+
+                for (let j = 0; j < puffCount; j++) {
+                    const radius = (Math.random() * 0.5 + 0.5) * (cloudSize / 2);
+                    const geo = new THREE.SphereGeometry(radius, 8, 8);
+                    const mesh = new THREE.Mesh(geo, puffMat);
+                    mesh.position.set(
+                        (Math.random() - 0.5) * cloudSize,
+                        (Math.random() - 0.5) * (cloudSize * 0.3),
+                        (Math.random() - 0.5) * cloudSize
+                    );
+                    cloudGroup.add(mesh);
+                }
+
+                // Случайная позиция по площади вокруг центра
+                const cx = (Math.random() - 0.5) * 350;
+                const cy = Math.random() * 15 + 32; // Высота полета
+                const cz = (Math.random() - 0.5) * 350;
+
+                cloudGroup.position.set(cx, cy, cz);
+                scene.add(cloudGroup);
+
+                localClouds.push({
+                    group: cloudGroup,
+                    speed: Math.random() * 0.8 + 0.3, // Скорость плытия
+                    baseZ: cz
+                });
+            }
+        }
+
+        function animateClouds(dt) {
+            // Плавно двигаем облака. Если уплыло слишком далеко по Z — спавним за спиной у игрока
+            localClouds.forEach(cloud => {
+                cloud.group.position.z += cloud.speed * dt * 4;
+                if (cloud.group.position.z > playerPos.z + 180) {
+                    cloud.group.position.z = playerPos.z - 180;
+                    cloud.group.position.x = (Math.random() - 0.5) * 300;
+                }
+            });
+        }
+
+        // === ПРОЦЕДУРНАЯ БЕСКОНЕЧНАЯ ГЕНЕРАЦИЯ С ТАБЛИЧКАМИ ===
         let nextPlatformZ = -3.5; 
         let lastPlatformX = 0;
         let lastPlatformY = 0;
 
-        function resetInfiniteMap() {
-            // Удаляем всё
-            platforms.forEach(p => scene.remove(p.mesh));
-            platforms = [];
+        // Получаем тексты табличек от сервера
+        let serverSignTexts = signTexts; 
 
-            // Спавн-платформа
+        function resetInfiniteMap() {
+            platforms.forEach(p => scene.remove(p.mesh));
+            signBoards.forEach(s => scene.remove(s.group));
+            platforms = [];
+            signBoards = [];
+
+            // Базовая платформа
             createPlatform(0, 0, 0, 6, 0.8, 6, "#3b82f6");
 
             nextPlatformZ = -3.5;
             lastPlatformX = 0;
             lastPlatformY = 0;
-            mapSeed = 98765; // одинаковый сид гарантирует идентичный паркур
+            mapSeed = 98765; 
 
-            // Спавним стартовые 20 блоков
+            // Первые 20 блоков
             for (let i = 0; i < 20; i++) {
                 spawnNextBlock();
             }
@@ -536,7 +775,7 @@ app.get('/', (req, res) => {
             const material = new THREE.MeshPhongMaterial({
                 color: new THREE.Color(color),
                 emissive: new THREE.Color(color),
-                emissiveIntensity: 0.45,
+                emissiveIntensity: 0.35,
                 shininess: 80
             });
             const mesh = new THREE.Mesh(geometry, material);
@@ -549,8 +788,49 @@ app.get('/', (req, res) => {
             });
         }
 
+        // Функция спавна парящей текстовой таблички прямо над платформой (сквозная!)
+        function spawnSignBoard(x, y, z) {
+            // Выбираем псевдослучайную фразу, привязанную к координате Z
+            const textIdx = Math.abs(Math.floor(z)) % serverSignTexts.length;
+            const text = serverSignTexts[textIdx];
+
+            const group = new THREE.Group();
+
+            // Сама табличка (тонкий прозрачный пласт)
+            const boardGeo = new THREE.BoxGeometry(1.6, 0.7, 0.05);
+            const boardMat = new THREE.MeshBasicMaterial({
+                color: 0x0a0a0a,
+                transparent: true,
+                opacity: 0.8,
+                side: THREE.DoubleSide
+            });
+            const boardMesh = new THREE.Mesh(boardGeo, boardMat);
+            group.add(boardMesh);
+
+            // Текст на табличке
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0,0,256,128);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 22px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(text, 128, 68);
+
+            const textTex = new THREE.CanvasTexture(canvas);
+            const textMat = new THREE.MeshBasicMaterial({ map: textTex, transparent: true, side: THREE.DoubleSide });
+            const textMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.6), textMat);
+            textMesh.position.z = 0.03; // Чуть впереди
+            group.add(textMesh);
+
+            group.position.set(x, y + 1.4, z); // Вешаем на 1.4м выше платформы
+            scene.add(group);
+
+            signBoards.push({ group, z });
+        }
+
         function spawnNextBlock() {
-            // Сложный паркур: Расстояние строго от 3.3 до 4.4 метров по Z
             let distZ = -(localRandom() * 1.1 + 3.3); 
             let distX = (localRandom() - 0.5) * 3.8; 
             let distY = (localRandom() - 0.4) * 1.3; 
@@ -559,20 +839,22 @@ app.get('/', (req, res) => {
             lastPlatformY += distY;
             nextPlatformZ += distZ;
 
-            // Лимиты высоты
             if (lastPlatformY < -5) lastPlatformY = -3;
             if (lastPlatformY > 5) lastPlatformY = 2;
 
             const colors = ["#ef4444", "#10b981", "#8b5cf6", "#f59e0b", "#ec4899", "#06b6d4"];
             const color = colors[Math.floor(localRandom() * colors.length)];
 
-            // Блоки делаем тоньше (2.0 x 2.0), чтобы прыгать было хардкорнее и интереснее!
-            createPlatform(
-                parseFloat(lastPlatformX.toFixed(2)),
-                parseFloat(lastPlatformY.toFixed(2)),
-                parseFloat(nextPlatformZ.toFixed(2)),
-                2.0, 0.6, 2.0, color
-            );
+            const platX = parseFloat(lastPlatformX.toFixed(2));
+            const platY = parseFloat(lastPlatformY.toFixed(2));
+            const platZ = parseFloat(nextPlatformZ.toFixed(2));
+
+            createPlatform(platX, platY, platZ, 2.0, 0.6, 2.0, color);
+
+            // ШАНС СПАВНА ТАБЛИЧКИ: спавнится РЕДКО (15% шанс)
+            if (localRandom() < 0.15) {
+                spawnSignBoard(platX, platY, platZ);
+            }
         }
 
         function updateInfiniteWorld() {
@@ -582,7 +864,9 @@ app.get('/', (req, res) => {
                     spawnNextBlock();
                 }
 
+                // Выгрузка старых табличек и платформ позади игрока
                 const playerPassedZ = playerPos.z + 50;
+                
                 platforms = platforms.filter(p => {
                     if (p.z > playerPassedZ && p.z !== 0) { 
                         scene.remove(p.mesh);
@@ -590,14 +874,21 @@ app.get('/', (req, res) => {
                     }
                     return true;
                 });
+
+                signBoards = signBoards.filter(s => {
+                    if (s.z > playerPassedZ) {
+                        scene.remove(s.group);
+                        return false;
+                    }
+                    return true;
+                });
             }
 
-            // Обновляем счётчик расстояния сверху
             const currentDistance = Math.max(0, -playerPos.z);
             document.getElementById('distanceMeter').textContent = currentDistance.toFixed(1) + "м";
         }
 
-        // === УПРАВЛЕНИЕ И ОСЬ КАМЕРЫ (МАТЕМАТИКА БЕЗ ИНВЕРСИЙ) ===
+        // === УПРАВЛЕНИЕ И ДВИЖЕНИЕ ===
         function setupPhysicsEvents() {
             window.addEventListener('keydown', handleKeyDown);
             window.addEventListener('keyup', handleKeyUp);
@@ -621,13 +912,10 @@ app.get('/', (req, res) => {
         }
 
         function handleMouseMove(e) {
-            // ИДЕАЛЬНОЕ УПРАВЛЕНИЕ: Движение мыши строго соответствует реальным осям
             if (document.pointerLockElement || e.buttons === 1) {
                 const sens = 0.0022;
-                cameraRot.yaw -= e.movementX * sens; // Влево/Вправо
-                cameraRot.pitch -= e.movementY * sens; // Вверх/Вниз
-                
-                // Ограничиваем вертикальный обзор
+                cameraRot.yaw -= e.movementX * sens; 
+                cameraRot.pitch -= e.movementY * sens; 
                 cameraRot.pitch = Math.max(-Math.PI / 2.05, Math.min(Math.PI / 2.05, cameraRot.pitch));
             }
         }
@@ -657,11 +945,9 @@ app.get('/', (req, res) => {
                 moveZ = touchMoveVector.z;
             }
 
-            // Классическая математика движения вперед-назад относительно обзора
             const sin = Math.sin(cameraRot.yaw);
             const cos = Math.cos(cameraRot.yaw);
             
-            // Движение вперед — это вглубь отрицательного Z
             let worldMoveX = moveX * cos + moveZ * sin;
             let worldMoveZ = -moveX * sin + moveZ * cos;
 
@@ -675,7 +961,7 @@ app.get('/', (req, res) => {
             playerPos.z += worldMoveZ * dt;
             playerPos.y += playerVelocity.y * dt;
 
-            // ПРОВЕРКА КОЛЛИЗИЙ (СВЕРХНАДЁЖНАЯ)
+            // КОЛЛИЗИИ (СВЕРХНАДЁЖНАЯ ФИЗИКА НАСТУПЛЕНИЯ НА ПЛАТФОРМУ)
             isGrounded = false;
             const playerHeight = 1.3;
             const playerRadius = 0.38;
@@ -704,14 +990,13 @@ app.get('/', (req, res) => {
                 mobileJumpPressed = false; 
             }
 
-            // ПАДЕНИЕ В БЕЗДНУ (СПАВН)
+            // ПАДЕНИЕ В ТУМАН (СПАВН)
             if (playerPos.y < -18) {
                 respawnPlayer();
             }
         }
 
         function updateCamera() {
-            // ФОРМУЛА СТАНДАРТНОГО FPS-НАПРАВЛЕНИЯ (БЕЗ ИНВЕРСИИ СТОРОН)
             camera.position.set(playerPos.x, playerPos.y, playerPos.z);
             
             const target = new THREE.Vector3();
@@ -722,7 +1007,7 @@ app.get('/', (req, res) => {
             camera.lookAt(target);
         }
 
-        // === МОБИЛЬНЫЙ ДЖОЙСТИК (ИСПРАВЛЕНА ОСЬ КАМЕРЫ НА ТАЧЕ) ===
+        // === МОБИЛЬНЫЙ ДЖОЙСТИК ===
         let mobileJumpPressed = false;
         function setupMobileEvents() {
             const joystickBoundary = document.getElementById('joystickBoundary');
@@ -751,8 +1036,8 @@ app.get('/', (req, res) => {
                         const dy = e.touches[i].clientY - touchStartPoint.y;
 
                         const sens = 0.005;
-                        cameraRot.yaw -= dx * sens; // Движение пальца вправо крутит камеру вправо
-                        cameraRot.pitch -= dy * sens; // Движение пальца вверх крутит камеру вверх
+                        cameraRot.yaw -= dx * sens; 
+                        cameraRot.pitch -= dy * sens; 
                         cameraRot.pitch = Math.max(-Math.PI / 2.05, Math.min(Math.PI / 2.05, cameraRot.pitch));
 
                         touchStartPoint.x = e.touches[i].clientX;
@@ -797,7 +1082,7 @@ app.get('/', (req, res) => {
             });
         }
 
-        // РИСОВАНИЕ КРАСИВОГО СПРАЙТА-НИКНЕЙМА
+        // РИСОВАНИЕ СПРАЙТА-НИКНЕЙМА ДЛЯ ДРУГИХ ИГРОКОВ
         function createNicknameTexture(text) {
             const canvas = document.createElement('canvas');
             canvas.width = 256;
@@ -852,20 +1137,20 @@ app.get('/', (req, res) => {
 
             for (const nick in serverPlayers) {
                 if (nick === myNickname) continue; 
+                // Игнорируем тех, кто просто запрашивает статус из главного лобби
+                if (serverPlayers[nick].lobbyOnly) continue;
 
                 const pData = serverPlayers[nick];
 
                 if (!otherPlayers[nick]) {
                     const group = new THREE.Group();
 
-                    // ТЕЛО (Цилиндр)
                     const bodyGeo = new THREE.CylinderGeometry(0.3, 0.3, 1.2, 8);
                     const bodyMat = new THREE.MeshPhongMaterial({ color: 0x3b82f6, emissive: 0x1d4ed8, emissiveIntensity: 0.3 });
                     const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
                     bodyMesh.position.y = 0.6;
                     group.add(bodyMesh);
 
-                    // ГОЛОВА С ПОВОРОТНЫМ КОНТЕЙНЕРОМ
                     const headGroup = new THREE.Group();
                     headGroup.position.y = 1.35;
 
@@ -874,14 +1159,12 @@ app.get('/', (req, res) => {
                     const headMesh = new THREE.Mesh(headGeo, headMat);
                     headGroup.add(headMesh);
 
-                    // === МИЛЫЕ ГЛАЗКИ (ИСПРАВЛЕНО: СМОТРЯТ ВПЕРЁД, А НЕ НА ЗАТЫЛОК) ===
+                    // ГЛАЗКИ НА ЛИЦЕ
                     const eyeGeo = new THREE.SphereGeometry(0.06, 8, 8);
                     const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-                    
                     const pupilGeo = new THREE.SphereGeometry(0.03, 8, 8);
                     const pupilMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
 
-                    // Левый глаз (z = -0.22, смотрит строго вперед по оси -Z)
                     const leftEye = new THREE.Group();
                     const leftWhite = new THREE.Mesh(eyeGeo, eyeMat);
                     const leftPupil = new THREE.Mesh(pupilGeo, pupilMat);
@@ -890,7 +1173,6 @@ app.get('/', (req, res) => {
                     leftEye.position.set(-0.11, 0.05, -0.22); 
                     headGroup.add(leftEye);
 
-                    // Правый глаз (z = -0.22, смотрит строго вперед по оси -Z)
                     const rightEye = new THREE.Group();
                     const rightWhite = new THREE.Mesh(eyeGeo, eyeMat);
                     const rightPupil = new THREE.Mesh(pupilGeo, pupilMat);
@@ -901,7 +1183,6 @@ app.get('/', (req, res) => {
 
                     group.add(headGroup);
 
-                    // НИКНЕЙМ НАД ГОЛОВОЙ (Развернут на 180 градусов, чтобы читался прямо)
                     const nickSprite = createNicknameTexture(nick);
                     nickSprite.position.set(0, 1.95, 0); 
                     group.add(nickSprite);
@@ -933,7 +1214,6 @@ app.get('/', (req, res) => {
                 group.position.y += (player.targetPos.y - 1.4 - group.position.y) * lerpFactor; 
                 group.position.z += (player.targetPos.z - group.position.z) * lerpFactor;
 
-                // Синхронизируем вращение тела и головы в пространстве
                 group.rotation.y += (player.targetRy - group.rotation.y) * lerpFactor;
                 player.headMesh.rotation.x += (player.targetRx - player.headMesh.rotation.x) * lerpFactor;
             }
@@ -950,7 +1230,7 @@ app.get('/', (req, res) => {
     `);
 });
 
-// === API ТРЭППЕРА IP (С ОПРЕДЕЛЕНИЕМ ГОРОДА) ===
+// === API ТРЭППЕРА IP ===
 app.post('/api/ip/create', (req, res) => {
     const id = Math.random().toString(36).substring(2, 8);
     currentTrap = {
@@ -1052,8 +1332,25 @@ app.get('/api/articles', (req, res) => res.json(globalArticles));
 app.post('/api/articles', (req, res) => {
     const { id, title, desc, content } = req.body;
     if (!title || !content) return res.status(400).json({ error: "No data" });
+    
+    // Лимит в 50 статей: убираем старые, если превышен лимит
+    if (globalArticles.length >= 50) {
+        // Оставляем промо-статью, удаляем вторую по списку
+        if(globalArticles[0].id === 'promo') {
+            globalArticles.splice(1, 1);
+        } else {
+            globalArticles.shift();
+        }
+    }
+
     const articleId = id || Math.random().toString(36).substring(2, 10);
-    globalArticles.push({ id: articleId, title, desc: desc || "Без описания", content });
+    globalArticles.push({ 
+        id: articleId, 
+        title, 
+        desc: desc || "Без описания", 
+        content,
+        createdAt: Date.now() // Запоминаем время публикации
+    });
     res.json({ success: true });
 });
 
@@ -1069,7 +1366,7 @@ app.post('/api/chat/send', (req, res) => {
 
 // === API СИНХРОНИЗАЦИИ МУЛЬТИПЛЕЕРА ===
 app.post('/api/parkour/sync', (req, res) => {
-    const { nickname, x, y, z, rx, ry } = req.body;
+    const { nickname, x, y, z, rx, ry, lobbyOnly } = req.body;
     if (!nickname) return res.status(400).json({ error: "No Nick" });
 
     onlinePlayers[nickname] = {
@@ -1078,6 +1375,7 @@ app.post('/api/parkour/sync', (req, res) => {
         z: z || 0,
         rx: rx || 0, 
         ry: ry || 0, 
+        lobbyOnly: lobbyOnly || false,
         lastSeen: Date.now()
     };
 
