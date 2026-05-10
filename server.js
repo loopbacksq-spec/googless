@@ -188,7 +188,7 @@ app.get('/', (req, res) => {
         </main>
     </div>
 
-    <div id="gameView" class="hidden fixed inset-0 z-50 bg-[#e0f2fe] select-none flex flex-col overflow-hidden">
+    <div id="gameView" class="hidden fixed inset-0 z-50 bg-[#bae6fd] select-none flex flex-col overflow-hidden">
         
         <div class="absolute top-4 left-4 z-50 flex flex-col items-start gap-2 pointer-events-none">
             <button onclick="toggleGameChat()" class="bg-black/95 hover:bg-zinc-900 border border-zinc-800 text-white font-bold px-4 py-2 rounded-lg text-xs tracking-wider transition pointer-events-auto flex items-center gap-2">
@@ -473,56 +473,101 @@ app.get('/', (req, res) => {
             isTouchDevice = true;
         }
 
-        // --- САУНДТРЕК ---
+        // --- КРАСИВАЯ ЭМБИЕНТ-МУЗЫКА (АНАЛОГОВЫЙ СИНТЕЗАТОР С ЭХОМ) ---
         let audioCtx = null;
         let musicInterval = null;
+        let synthDelayNode = null;
+
         function startProceduralMusic() {
             try {
+                // Создаем аудиоконтекст
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                let tempo = 125;
+                
+                // Создаем узел задержки (Эхо-эффект) для космического звучания
+                synthDelayNode = audioCtx.createDelay();
+                synthDelayNode.delayTime.value = 0.35; // Время задержки эха
+                
+                const feedback = audioCtx.createGain();
+                feedback.gain.value = 0.4; // Сила затухания эха
+
+                synthDelayNode.connect(feedback);
+                feedback.connect(synthDelayNode);
+                synthDelayNode.connect(audioCtx.destination);
+
+                let tempo = 110; 
                 let step = 0;
-                let melody = [60, 64, 67, 72, 69, 67, 64, 62, 60, 67, 72, 76, 74, 72, 67, 69];
+                // Красивые неоновые аккорды (Пентатоника)
+                let melody = [57, 60, 64, 67, 69, 72, 69, 67, 64, 60, 57, 57, 64, 64, 67, 69];
 
                 musicInterval = setInterval(() => {
                     if (!isGameActive || audioCtx.state === 'suspended') return;
                     
                     let note = melody[step % melody.length];
-                    if (step % 4 === 0) playKick();
-                    if (step % 3 !== 0) playSynthNote(note);
+                    if (step % 4 === 0) playKick(); // Плавная бочка на фоне
+                    
+                    // Играем мягкую синусоидальную ноту раз в пару шагов
+                    if (step % 2 === 0) {
+                        playSynthNote(note);
+                    }
 
                     step++;
                 }, 60000 / tempo / 2);
-            } catch (e) {}
+            } catch (e) {
+                console.log("Ошибка аудио:", e);
+            }
         }
 
         function playSynthNote(midi) {
+            if(!audioCtx || audioCtx.state === 'suspended') return;
+            
             let freq = 440 * Math.pow(2, (midi - 69) / 12);
             let osc = audioCtx.createOscillator();
-            let gain = audioCtx.createGain();
+            let osc2 = audioCtx.createOscillator(); // Второй осциллятор для плотности
+            let gainNode = audioCtx.createGain();
             
-            osc.type = 'triangle';
+            // Настройка мягкого синуса
+            osc.type = 'sine';
             osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            
+            // Настройка пилообразной волны на октаву ниже с тихой громкостью для тепла
+            osc2.type = 'triangle';
+            osc2.frequency.setValueAtTime(freq / 2, audioCtx.currentTime);
 
-            gain.gain.setValueAtTime(0.06, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.25);
+            // Плавное появление и затухание звука (Атака/Спад)
+            gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+            gainNode.gain.linearRampToValueAtTime(0.08, audioCtx.currentTime + 0.05); // Атака
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.9); // Медленное затухание
 
-            osc.connect(gain);
-            gain.connect(audioCtx.destination);
+            osc.connect(gainNode);
+            osc2.connect(gainNode);
+            
+            // Подключаем напрямую и в узел эхо
+            gainNode.connect(audioCtx.destination);
+            gainNode.connect(synthDelayNode);
+
             osc.start();
-            osc.stop(audioCtx.currentTime + 0.3);
+            osc2.start();
+            osc.stop(audioCtx.currentTime + 1.0);
+            osc2.stop(audioCtx.currentTime + 1.0);
         }
 
         function playKick() {
+            if(!audioCtx || audioCtx.state === 'suspended') return;
+            
             let osc = audioCtx.createOscillator();
             let gain = audioCtx.createGain();
-            osc.frequency.setValueAtTime(130, audioCtx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
-            gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
+            
+            osc.frequency.setValueAtTime(100, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+            
+            gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
+            
             osc.connect(gain);
             gain.connect(audioCtx.destination);
+            
             osc.start();
-            osc.stop(audioCtx.currentTime + 0.11);
+            osc.stop(audioCtx.currentTime + 0.16);
         }
 
         function startParkourGame() {
@@ -622,14 +667,16 @@ app.get('/', (req, res) => {
             const container = document.getElementById('threeJsContainer');
             
             scene = new THREE.Scene();
-            scene.fog = new THREE.FogExp2('#e0f2fe', 0.008);
+            // ИСПРАВЛЕНИЕ: Используем числовой код цвета вместо строки
+            scene.fog = new THREE.FogExp2(0xbae6fd, 0.008);
 
             camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 1000);
 
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-            renderer.setClearColor('#e0f2fe', 1); 
+            // ИСПРАВЛЕНИЕ: Безопасное назначение цвета очистки
+            renderer.setClearColor(0xbae6fd, 1); 
             container.appendChild(renderer.domElement);
 
             const ambientLight = new THREE.AmbientLight(0xffffff, 0.9); 
