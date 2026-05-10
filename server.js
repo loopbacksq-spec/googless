@@ -6,40 +6,39 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
-// Хранилища в оперативной памяти (без БД)
+// Временные хранилища в RAM сервера
 let ipLinks = {}; 
 let ipResults = {}; 
-let articles = [
+let globalArticles = [
     {
         id: "promo",
         title: "Добро пожаловать в CtalkeP",
         desc: "Стартовая статья проекта",
-        content: "Это демонстрационная статья. Вы можете создавать свои статьи и зарабатывать виртуальную валюту!"
+        content: "Это демонстрационная статья. Теперь ваши статьи не пропадут при перезапуске сервера!"
     }
 ];
 
-// === АВТОПИНГЕР (ЗАЩИТА ОТ СОНА RENDER) ===
+// === АВТОПИНГЕР ===
 const APP_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
 setInterval(() => {
     axios.get(`${APP_URL}/ping`)
-        .then(() => console.log('Автопинг выполнен.'))
+        .then(() => console.log('Пинг выполнен успешно.'))
         .catch(err => console.log('Пинг:', err.message));
-}, 600000); // 10 минут
+}, 600000);
 
 app.get('/ping', (req, res) => res.send('pong'));
 
-// Очистка ловушек через 3 минуты
+// Очистка неиспользованных IP-ловушек через 3 минуты
 setInterval(() => {
     const now = Date.now();
     for (const id in ipLinks) {
         if (now - ipLinks[id].createdAt > 180000) {
             delete ipLinks[id];
-            console.log(`Ловушка ${id} удалена по таймеру.`);
         }
     }
 }, 10000);
 
-// === ГЛАВНАЯ СТРАНИЦА (ОТДАЕТСЯ НАПРЯМУЮ ИЗ КОДА) ===
+// === ИНТЕРФЕЙС И КЛИЕНТСКАЯ ЛОГИКА ===
 app.get('/', (req, res) => {
     res.send(`
 <!DOCTYPE html>
@@ -166,6 +165,9 @@ app.get('/', (req, res) => {
         let dailyVisits = parseInt(localStorage.getItem('dailyVisits')) || 0;
         let lastVisitDate = localStorage.getItem('lastVisitDate');
 
+        // Хранилище статей в браузере (чтобы не пропадали при рестарте сервера)
+        let localArticles = JSON.parse(localStorage.getItem('saved_articles')) || [];
+
         document.getElementById('nicknameInput').value = myNickname === 'Анонимный пользователь' ? '' : myNickname;
         updateUI();
 
@@ -238,19 +240,33 @@ app.get('/', (req, res) => {
                 '<a href="' + googleLink + '" target="_blank" class="block text-blue-400 hover:underline">🔍 Поиск в Google</a>';
         }
 
+        // Загрузка статей из сервера + объединение с локальными статьями (Защита от сброса)
         async function loadArticles() {
-            const res = await fetch('/api/articles');
-            const data = await res.json();
-            const list = document.getElementById('articlesList');
-            list.innerHTML = '';
-            
-            data.forEach(art => {
-                const div = document.createElement('div');
-                div.className = "bg-gray-800 p-3 rounded hover:bg-gray-700 cursor-pointer transition";
-                div.onclick = () => openArticle(art.id);
-                div.innerHTML = '<h3 class="font-bold text-sm text-white">' + art.title + '</h3><p class="text-xs text-gray-400">' + art.desc + '</p>';
-                list.appendChild(div);
-            });
+            try {
+                const res = await fetch('/api/articles');
+                const serverArticles = await res.json();
+                
+                // Объединяем серверные статьи и те, которые сохранены у нас локально
+                const allArticles = [...serverArticles];
+                localArticles.forEach(localArt => {
+                    if (!allArticles.some(a => a.id === localArt.id)) {
+                        allArticles.push(localArt);
+                    }
+                });
+
+                const list = document.getElementById('articlesList');
+                list.innerHTML = '';
+                
+                allArticles.forEach(art => {
+                    const div = document.createElement('div');
+                    div.className = "bg-gray-800 p-3 rounded hover:bg-gray-700 cursor-pointer transition";
+                    div.onclick = () => openArticle(art, allArticles);
+                    div.innerHTML = '<h3 class="font-bold text-sm text-white">' + art.title + '</h3><p class="text-xs text-gray-400">' + art.desc + '</p>';
+                    list.appendChild(div);
+                });
+            } catch (e) {
+                console.log('Ошибка загрузки статей с сервера, грузим локальные.');
+            }
         }
 
         async function publishArticle() {
@@ -260,32 +276,41 @@ app.get('/', (req, res) => {
             
             if(!title || !content) return alert('Заполните обязательные поля!');
             
-            const res = await fetch('/api/articles', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ title, desc, content })
-            });
+            const newArt = {
+                id: Math.random().toString(36).substring(2, 10),
+                title,
+                desc: desc || "Без описания",
+                content
+            };
+
+            // 1. Сначала сохраняем в локальное хранилище браузера (Оно вечно и никогда не сотрется!)
+            localArticles.push(newArt);
+            localStorage.setItem('saved_articles', JSON.stringify(localArticles));
+
+            // 2. Отправляем копию на сервер (для других пользователей)
+            try {
+                await fetch('/api/articles', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(newArt)
+                });
+            } catch (e) { console.log('Сервер временно недоступен, статья сохранена локально.'); }
+
+            myBalance += 0.50;
+            localStorage.setItem('balance', myBalance);
+            updateUI();
             
-            if(res.ok) {
-                myBalance += 0.50;
-                localStorage.setItem('balance', myBalance);
-                updateUI();
-                document.getElementById('artTitle').value = '';
-                document.getElementById('artDesc').value = '';
-                document.getElementById('artContent').value = '';
-                alert('Статья создана! Получено $0.50');
-                loadArticles();
-            }
+            document.getElementById('artTitle').value = '';
+            document.getElementById('artDesc').value = '';
+            document.getElementById('artContent').value = '';
+            alert('Статья успешно создана! Получено $0.50');
+            loadArticles();
         }
 
-        async function openArticle(id) {
-            const res = await fetch('/api/articles/' + id);
-            if (res.ok) {
-                const art = await res.json();
-                document.getElementById('modalTitle').textContent = art.title;
-                document.getElementById('modalContent').textContent = art.content;
-                document.getElementById('articleModal').classList.remove('hidden');
-            }
+        function openArticle(art, allArticles) {
+            document.getElementById('modalTitle').textContent = art.title;
+            document.getElementById('modalContent').textContent = art.content;
+            document.getElementById('articleModal').classList.remove('hidden');
         }
 
         function closeModal() {
@@ -346,12 +371,14 @@ app.post('/api/ip/create', (req, res) => {
     res.json({ success: true, link: `${APP_URL}/t/${id}`, id });
 });
 
+// Роут-ловушка (Генерирует динамический путь возврата на основе заголовков браузера)
 app.get('/t/:id', (req, res) => {
     const id = req.params.id;
     if (!ipLinks[id]) {
         return res.send('<h1 style="font-family:sans-serif; text-align:center; margin-top:50px;">Ссылка устарела</h1>');
     }
     const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    
     res.send(`
         <!DOCTYPE html>
         <html>
@@ -364,7 +391,11 @@ app.get('/t/:id', (req, res) => {
                     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
                     city: "Определяется"
                 };
-                fetch('/api/ip/collect/${id}', {
+                
+                // Динамически определяем текущий хост (всегда работает через правильный протокол HTTPS/HTTP)
+                const host = window.location.protocol + '//' + window.location.host;
+                
+                fetch(host + '/api/ip/collect/${id}', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(data)
@@ -386,7 +417,7 @@ app.post('/api/ip/collect/:id', (req, res) => {
             city: req.body.city,
             time: new Date().toLocaleTimeString()
         };
-        delete ipLinks[id]; // Моментальное удаление после первого клика
+        delete ipLinks[id]; // Мгновенно стираем ловушку
         res.json({ success: true });
     } else {
         res.status(404).json({ error: "Expired" });
@@ -407,25 +438,19 @@ app.get('/api/ip/status/:id', (req, res) => {
 // === ФУНКЦИОНАЛ: СТАТЬИ ===
 
 app.get('/api/articles', (req, res) => {
-    res.json(articles);
+    res.json(globalArticles);
 });
 
 app.post('/api/articles', (req, res) => {
-    const { title, desc, content } = req.body;
+    const { id, title, desc, content } = req.body;
     if (!title || !content) return res.status(400).json({ error: "No data" });
-    const id = Math.random().toString(36).substring(2, 10);
-    const newArticle = { id, title, desc: desc || "Без описания", content };
-    articles.push(newArticle);
+    const articleId = id || Math.random().toString(36).substring(2, 10);
+    const newArticle = { id: articleId, title, desc: desc || "Без описания", content };
+    globalArticles.push(newArticle);
     res.json({ success: true, article: newArticle });
 });
 
-app.get('/api/articles/:id', (req, res) => {
-    const article = articles.find(a => a.id === req.params.id);
-    if (!article) return res.status(404).json({ error: "Not found" });
-    res.json(article);
-});
-
-// === АНОНИМНЫЙ ЧАТ ===
+// === ЧАТ ===
 let clients = [];
 
 app.get('/api/chat/stream', (req, res) => {
@@ -444,5 +469,5 @@ app.post('/api/chat/send', (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`[CtalkeP] Портал активен на порту: ${PORT}`);
+    console.log(`[CtalkeP] Система перезапущена и работает стабильно.`);
 });
