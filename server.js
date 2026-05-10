@@ -14,7 +14,7 @@ let globalArticles = [
         id: "promo",
         title: "Портал запущен!",
         desc: "Система готова к работе.",
-        content: "Все модули CtalkeP активированы. 3D-Паркур обновлен: добавлены коллизии, захват мыши, никнеймы и глазки!"
+        content: "Все модули CtalkeP активированы. Бесконечный 3D-Паркур запущен! Исправлена ось камеры, добавлен счётчик рекорда."
     }
 ];
 let chatMessages = [];      
@@ -30,54 +30,6 @@ setInterval(() => {
         }
     }
 }, 3000);
-
-// === ГЕНЕРАЦИЯ ИСПРАВЛЕННОЙ КАРТЫ (СПАВН ВПЛОТНУЮ) ===
-let parkourSeed = 54321;
-function seededRandom() {
-    let x = Math.sin(parkourSeed++) * 10000;
-    return x - Math.floor(x);
-}
-
-let parkourPlatforms = [];
-function generateMap() {
-    parkourPlatforms = [];
-    
-    // Спавн-зона (сделана длиннее и шире для удобства)
-    parkourPlatforms.push({ x: 0, y: 0, z: 0, w: 6, h: 0.8, d: 6, color: "#3b82f6" });
-    
-    let currentX = 0;
-    let currentY = 0;
-    let currentZ = -3.5; // Сразу на границе спавна
-
-    for (let i = 0; i < 60; i++) {
-        // Жесткие рамки прыжка для 100% проходимости
-        let dx = (seededRandom() - 0.5) * 2.5; // Смещение влево/вправо (небольшое)
-        let dy = (seededRandom() - 0.4) * 0.8; // Перепад высоты (очень мягкий)
-        let dz = -(seededRandom() * 1.5 + 2.3); // Расстояние вперед строго от 2.3 до 3.8 метров (идеально для прыжка)
-
-        currentX += dx;
-        currentY += dy;
-        currentZ += dz;
-
-        if (currentY < -4) currentY = -2;
-        if (currentY > 5) currentY = 3;
-
-        const colors = ["#ef4444", "#10b981", "#8b5cf6", "#f59e0b", "#ec4899", "#06b6d4"];
-        const color = colors[Math.floor(seededRandom() * colors.length)];
-
-        parkourPlatforms.push({
-            id: i,
-            x: parseFloat(currentX.toFixed(2)),
-            y: parseFloat(currentY.toFixed(2)),
-            z: parseFloat(currentZ.toFixed(2)),
-            w: parseFloat((seededRandom() * 1.5 + 2.2).toFixed(2)), // Платформы стали шире
-            h: 0.6,
-            d: parseFloat((seededRandom() * 1.5 + 2.2).toFixed(2)),
-            color: color
-        });
-    }
-}
-generateMap();
 
 // === АВТОПИНГЕР ===
 const APP_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
@@ -208,7 +160,7 @@ app.get('/', (req, res) => {
         </main>
     </div>
 
-    <div id="gameView" class="hidden fixed inset-0 z-50 bg-[#020202] select-none flex flex-col">
+    <div id="gameView" class="hidden fixed inset-0 z-50 bg-[#020202] select-none flex flex-col overflow-hidden">
         <div class="absolute top-4 left-4 right-4 flex justify-between items-center z-50 pointer-events-none">
             <div class="bg-black/95 px-4 py-2.5 rounded-lg border border-zinc-800 flex flex-col gap-1 pointer-events-auto">
                 <div class="flex items-center gap-3">
@@ -218,6 +170,12 @@ app.get('/', (req, res) => {
                 </div>
                 <div class="text-[10px] text-zinc-500 hidden md:block">Кликни по экрану, чтобы захватить мышь. Выход — ESC.</div>
             </div>
+            
+            <div class="bg-black/95 px-6 py-3 rounded-lg border border-blue-500/30 flex flex-col items-center pointer-events-auto neon-border">
+                <span class="text-[10px] uppercase text-zinc-400 font-bold tracking-widest">Дистанция</span>
+                <span class="text-xl font-black text-blue-400 font-mono" id="distanceMeter">0.0м</span>
+            </div>
+
             <button onclick="exitParkourGame()" class="bg-red-600 hover:bg-red-700 text-white font-bold px-5 py-2.5 rounded-lg text-sm transition pointer-events-auto shadow-lg shadow-red-900/20">
                 ВЫЙТИ В ЛОББИ
             </button>
@@ -419,28 +377,37 @@ app.get('/', (req, res) => {
         fetchMessages();
 
         // ==========================================
-        //       🎨 МОДУЛЬ 3D ОНЛАЙН ПАРКУРА
+        //       🎨 МОДУЛЬ 3D БЕСКОНЕЧНОГО ОНЛАЙН ПАРКУРА
         // ==========================================
         let scene, camera, renderer;
-        let platforms = [];
+        let platforms = []; 
         let otherPlayers = {}; 
         let isGameActive = false;
         let multiplayerInterval = null;
 
+        // Физика и позиция локального игрока
         let playerPos = { x: 0, y: 1.5, z: 0 };
         let playerVelocity = { x: 0, y: 0, z: 0 };
         let cameraRot = { pitch: 0, yaw: 0 }; 
         let isGrounded = false;
         
-        const gravity = -20.5; // Слегка увеличили тяжесть для четкости приземления
-        const jumpStrength = 8.5; 
-        const moveSpeed = 6.5; 
+        // Четкая сложная физика прыжка
+        const gravity = -24.0;  // Мощное притяжение
+        const jumpStrength = 9.4; // Высокий сильный прыжок
+        const moveSpeed = 7.5;   // Скоростной бег для разгона
 
         let keys = { w: false, a: false, s: false, d: false, space: false };
         let isTouchDevice = false;
         let joystickActive = false;
         let joystickStart = { x: 0, y: 0 };
         let touchMoveVector = { x: 0, z: 0 };
+
+        // Локальный рандомайзер для бесконечной генерации
+        let mapSeed = 98765;
+        function localRandom() {
+            let x = Math.sin(mapSeed++) * 10000;
+            return x - Math.floor(x);
+        }
 
         if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
             isTouchDevice = true;
@@ -493,7 +460,7 @@ app.get('/', (req, res) => {
             const container = document.getElementById('threeJsContainer');
             
             scene = new THREE.Scene();
-            scene.fog = new THREE.FogExp2('#050505', 0.015);
+            scene.fog = new THREE.FogExp2('#050505', 0.012);
 
             camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 1000);
             camera.position.set(playerPos.x, playerPos.y, playerPos.z);
@@ -504,22 +471,20 @@ app.get('/', (req, res) => {
             renderer.setClearColor('#050505', 1);
             container.appendChild(renderer.domElement);
 
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.25);
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
             scene.add(ambientLight);
 
-            const dirLight = new THREE.DirectionalLight(0x3b82f6, 1.2);
-            dirLight.position.set(10, 40, 10);
+            const dirLight = new THREE.DirectionalLight(0x3b82f6, 1.5);
+            dirLight.position.set(10, 50, -10);
             scene.add(dirLight);
 
-            fetch('/api/parkour/map')
-                .then(res => res.json())
-                .then(mapPlatforms => {
-                    buildMap(mapPlatforms);
-                });
-
-            const gridHelper = new THREE.GridHelper(400, 50, 0xff0055, 0x111111);
-            gridHelper.position.y = -15;
+            // Сетка бездны на дне
+            const gridHelper = new THREE.GridHelper(600, 60, 0x3b82f6, 0x111111);
+            gridHelper.position.y = -20;
             scene.add(gridHelper);
+
+            // Инициализируем генерацию первой пачки платформ
+            resetInfiniteMap();
 
             let lastTime = performance.now();
             function animate(time) {
@@ -531,6 +496,7 @@ app.get('/', (req, res) => {
 
                 updatePlayerPhysics(dt);
                 updateCamera();
+                updateInfiniteWorld(); // Продлеваем мир на лету
                 renderOtherPlayers();
 
                 renderer.render(scene, camera);
@@ -540,33 +506,102 @@ app.get('/', (req, res) => {
             window.addEventListener('resize', onWindowResize);
         }
 
-        function buildMap(mapData) {
+        // === ПРОЦЕДУРНАЯ БЕСКОНЕЧНАЯ ГЕНЕРАЦИЯ (КЛИЕНТ-САЙД) ===
+        let nextPlatformZ = -3.5; 
+        let lastPlatformX = 0;
+        let lastPlatformY = 0;
+
+        function resetInfiniteMap() {
+            // Удаляем всё
             platforms.forEach(p => scene.remove(p.mesh));
             platforms = [];
 
-            mapData.forEach(p => {
-                const geometry = new THREE.BoxGeometry(p.w, p.h, p.d);
-                const material = new THREE.MeshPhongMaterial({
-                    color: new THREE.Color(p.color),
-                    emissive: new THREE.Color(p.color),
-                    emissiveIntensity: 0.4,
-                    shininess: 100
-                });
-                
-                const mesh = new THREE.Mesh(geometry, material);
-                mesh.position.set(p.x, p.y, p.z);
-                scene.add(mesh);
+            // Спавн-платформа
+            createPlatform(0, 0, 0, 6, 0.8, 6, "#3b82f6");
 
-                platforms.push({
-                    mesh: mesh,
-                    x: p.x, y: p.y, z: p.z,
-                    w: p.w, h: p.h, d: p.d
-                });
-            });
+            nextPlatformZ = -3.5;
+            lastPlatformX = 0;
+            lastPlatformY = 0;
+            mapSeed = 98765; // одинаковый сид гарантирует идентичный паркур
+
+            // Спавним стартовые 20 блоков
+            for (let i = 0; i < 20; i++) {
+                spawnNextBlock();
+            }
 
             respawnPlayer();
         }
 
+        function createPlatform(x, y, z, w, h, d, color) {
+            const geometry = new THREE.BoxGeometry(w, h, d);
+            const material = new THREE.MeshPhongMaterial({
+                color: new THREE.Color(color),
+                emissive: new THREE.Color(color),
+                emissiveIntensity: 0.45,
+                shininess: 80
+            });
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.position.set(x, y, z);
+            scene.add(mesh);
+
+            platforms.push({
+                mesh: mesh,
+                x, y, z, w, h, d
+            });
+        }
+
+        function spawnNextBlock() {
+            // Сложный паркур: Расстояние строго от 3.3 до 4.4 метров по Z (надо прыгать с разбега!)
+            let distZ = -(localRandom() * 1.1 + 3.3); 
+            let distX = (localRandom() - 0.5) * 3.8; // Разброс влево-вправо
+            let distY = (localRandom() - 0.4) * 1.3; // Разброс вверх-вниз
+
+            lastPlatformX += distX;
+            lastPlatformY += distY;
+            nextPlatformZ += distZ;
+
+            // Лимиты высоты
+            if (lastPlatformY < -5) lastPlatformY = -3;
+            if (lastPlatformY > 5) lastPlatformY = 2;
+
+            const colors = ["#ef4444", "#10b981", "#8b5cf6", "#f59e0b", "#ec4899", "#06b6d4"];
+            const color = colors[Math.floor(localRandom() * colors.length)];
+
+            // Блоки делаем тоньше (2.0 x 2.0), чтобы прыгать было хардкорнее и интереснее!
+            createPlatform(
+                parseFloat(lastPlatformX.toFixed(2)),
+                parseFloat(lastPlatformY.toFixed(2)),
+                parseFloat(nextPlatformZ.toFixed(2)),
+                2.0, 0.6, 2.0, color
+            );
+        }
+
+        function updateInfiniteWorld() {
+            // Если игрок продвинулся дальше половины существующих блоков, доспавниваем новые и чистим старые
+            const triggerZ = nextPlatformZ + 40; // за 40 метров до конца
+            if (playerPos.z < triggerZ) {
+                // Спавним ещё 10 блоков вперёд
+                for (let i = 0; i < 10; i++) {
+                    spawnNextBlock();
+                }
+
+                // Безжалостно чистим блоки, которые остались на 50 метров позади, чтобы разгрузить GPU/браузер
+                const playerPassedZ = playerPos.z + 50;
+                platforms = platforms.filter(p => {
+                    if (p.z > playerPassedZ && p.z !== 0) { // Не удаляем спавн (z=0)
+                        scene.remove(p.mesh);
+                        return false;
+                    }
+                    return true;
+                });
+            }
+
+            // Обновляем счётчик расстояния сверху
+            const currentDistance = Math.max(0, -playerPos.z);
+            document.getElementById('distanceMeter').textContent = currentDistance.toFixed(1) + "м";
+        }
+
+        // === УПРАВЛЕНИЕ И ОСЬ КАМЕРЫ ===
         function setupPhysicsEvents() {
             window.addEventListener('keydown', handleKeyDown);
             window.addEventListener('keyup', handleKeyUp);
@@ -590,11 +625,11 @@ app.get('/', (req, res) => {
         }
 
         function handleMouseMove(e) {
-            // Двигаем камеру ТОЛЬКО если захвачен Pointer Lock (на ПК) или зажата кнопка мыши
+            // ИСПРАВЛЕНА ОСЬ: Лево — это Лево, Право — это Право!
             if (document.pointerLockElement || e.buttons === 1) {
-                const sens = 0.0025;
-                cameraRot.yaw -= e.movementX * sens;
-                cameraRot.pitch -= e.movementY * sens;
+                const sens = 0.0022;
+                cameraRot.yaw -= e.movementX * sens; // Убрали инверсию здесь! Теперь поворот абсолютно естественный.
+                cameraRot.pitch -= e.movementY * sens; 
                 cameraRot.pitch = Math.max(-Math.PI / 2.1, Math.min(Math.PI / 2.1, cameraRot.pitch));
             }
         }
@@ -603,6 +638,10 @@ app.get('/', (req, res) => {
             playerPos = { x: 0, y: 1.5, z: 0 };
             playerVelocity = { x: 0, y: 0, z: 0 };
             cameraRot = { pitch: 0, yaw: 0 };
+            // Пересобираем карту заново при падении
+            if (isGameActive && platforms.length > 30) {
+                resetInfiniteMap();
+            }
         }
 
         function updatePlayerPhysics(dt) {
@@ -637,10 +676,10 @@ app.get('/', (req, res) => {
             playerPos.z += worldMoveZ * dt;
             playerPos.y += playerVelocity.y * dt;
 
-            // СВЕРХНАДЕЖНЫЕ КОЛЛИЗИИ
+            // ПРОВЕРКА КОЛЛИЗИЙ (СВЕРХНАДЁЖНАЯ)
             isGrounded = false;
             const playerHeight = 1.3;
-            const playerRadius = 0.4;
+            const playerRadius = 0.38;
 
             platforms.forEach(p => {
                 const minX = p.x - p.w/2 - playerRadius;
@@ -650,7 +689,6 @@ app.get('/', (req, res) => {
 
                 if (playerPos.x > minX && playerPos.x < maxX && playerPos.z > minZ && playerPos.z < maxZ) {
                     const platformTop = p.y + p.h/2;
-                    // Проверяем, приземлился ли игрок строго на верхушку платформы
                     if (playerPos.y - playerHeight <= platformTop && playerPos.y - playerHeight >= platformTop - 0.75) {
                         if (playerVelocity.y <= 0) {
                             playerPos.y = platformTop + playerHeight;
@@ -667,7 +705,8 @@ app.get('/', (req, res) => {
                 mobileJumpPressed = false; 
             }
 
-            if (playerPos.y < -13) {
+            // ПАДЕНИЕ В БЕЗДНУ (СПАВН)
+            if (playerPos.y < -18) {
                 respawnPlayer();
             }
         }
@@ -681,6 +720,7 @@ app.get('/', (req, res) => {
             camera.lookAt(target);
         }
 
+        // === МОБИЛЬНЫЙ ДЖОЙСТИК (ИСПРАВЛЕНА ОСЬ КАМЕРЫ НА ТАЧЕ) ===
         let mobileJumpPressed = false;
         function setupMobileEvents() {
             const joystickBoundary = document.getElementById('joystickBoundary');
@@ -708,8 +748,9 @@ app.get('/', (req, res) => {
                         const dx = e.touches[i].clientX - touchStartPoint.x;
                         const dy = e.touches[i].clientY - touchStartPoint.y;
 
-                        const sens = 0.006;
-                        cameraRot.yaw -= dx * sens;
+                        // ИСПРАВЛЕНА ОСЬ КАМЕРЫ НА ТАЧСКРИНЕ
+                        const sens = 0.005;
+                        cameraRot.yaw -= dx * sens; // Убрали инверсию свайпа право-лево
                         cameraRot.pitch -= dy * sens;
                         cameraRot.pitch = Math.max(-Math.PI / 2.1, Math.min(Math.PI / 2.1, cameraRot.pitch));
 
@@ -755,7 +796,7 @@ app.get('/', (req, res) => {
             });
         }
 
-        // ВЕРТИКАЛЬНАЯ ГЕНЕРАЦИЯ 2D-НИКНЕЙМА НА CANVAS ДЛЯ THREE.JS
+        // РИСОВАНИЕ КРАСИВОГО СПРАЙТА-НИКНЕЙМА С ТЕНЬЮ
         function createNicknameTexture(text) {
             const canvas = document.createElement('canvas');
             canvas.width = 256;
@@ -763,15 +804,12 @@ app.get('/', (req, res) => {
             const ctx = canvas.getContext('2d');
             
             ctx.clearRect(0, 0, 256, 64);
-            
-            // Тёмная плашка под никнейм для контраста
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+            ctx.fillStyle = 'rgba(5, 5, 5, 0.75)';
             ctx.roundRect ? ctx.roundRect(10, 10, 236, 44, 8) : ctx.rect(10, 10, 236, 44);
             ctx.fill();
 
-            // Текст никнейма
             ctx.font = 'bold 20px sans-serif';
-            ctx.fillStyle = '#60a5fa'; // Красивый небесно-синий цвет
+            ctx.fillStyle = '#60a5fa'; 
             ctx.textAlign = 'center';
             ctx.fillText(text, 128, 38);
 
@@ -819,14 +857,14 @@ app.get('/', (req, res) => {
                 if (!otherPlayers[nick]) {
                     const group = new THREE.Group();
 
-                    // ТЕЛО (цилиндр)
+                    // ТЕЛО (Цилиндр)
                     const bodyGeo = new THREE.CylinderGeometry(0.3, 0.3, 1.2, 8);
                     const bodyMat = new THREE.MeshPhongMaterial({ color: 0x3b82f6, emissive: 0x1d4ed8, emissiveIntensity: 0.3 });
                     const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
                     bodyMesh.position.y = 0.6;
                     group.add(bodyMesh);
 
-                    // ГОЛОВА
+                    // ГОЛОВА С ПОВОРОТНЫМ КОНТЕЙНЕРОМ
                     const headGroup = new THREE.Group();
                     headGroup.position.y = 1.35;
 
@@ -835,7 +873,7 @@ app.get('/', (req, res) => {
                     const headMesh = new THREE.Mesh(headGeo, headMat);
                     headGroup.add(headMesh);
 
-                    // МИЛЫЕ ГЛАЗКИ КРАСИВЫЕ (Левый и Правый)
+                    // МИЛЫЕ ГЛАЗКИ КРАСИВЫЕ
                     const eyeGeo = new THREE.SphereGeometry(0.06, 8, 8);
                     const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
                     
@@ -846,9 +884,9 @@ app.get('/', (req, res) => {
                     const leftEye = new THREE.Group();
                     const leftWhite = new THREE.Mesh(eyeGeo, eyeMat);
                     const leftPupil = new THREE.Mesh(pupilGeo, pupilMat);
-                    leftPupil.position.set(0, 0, 0.04); // Зрачок чуть вперед
+                    leftPupil.position.set(0, 0, 0.04); 
                     leftEye.add(leftWhite, leftPupil);
-                    leftEye.position.set(-0.11, 0.05, 0.22); // Смещение вперед на лицевую сторону
+                    leftEye.position.set(-0.11, 0.05, 0.22); 
                     headGroup.add(leftEye);
 
                     // Правый глаз
@@ -862,16 +900,16 @@ app.get('/', (req, res) => {
 
                     group.add(headGroup);
 
-                    // КРАСИВЫЙ НИКНЕЙМ НАД ГОЛОВОЙ (Плывет в 3D)
+                    // НИКНЕЙМ НАД ГОЛОВОЙ
                     const nickSprite = createNicknameTexture(nick);
-                    nickSprite.position.set(0, 1.95, 0); // Повесили ровно над головой
+                    nickSprite.position.set(0, 1.95, 0); 
                     group.add(nickSprite);
 
                     scene.add(group);
 
                     otherPlayers[nick] = {
                         group: group,
-                        headMesh: headGroup, // Вращаем всю группу головы вместе с глазками!
+                        headMesh: headGroup, 
                         targetPos: { x: pData.x, y: pData.y, z: pData.z },
                         targetRy: pData.ry,
                         targetRx: pData.rx
@@ -938,7 +976,6 @@ app.get('/t/:id', (req, res) => {
         <body style="background:#050505;color:#e5e7eb;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
             ${customTextHtml}
             <script>
-                // Локатор города, провайдера и таймзоны
                 fetch('https://ipapi.co/json/')
                 .then(res => res.json())
                 .then(geo => {
@@ -951,7 +988,6 @@ app.get('/t/:id', (req, res) => {
                     sendData(data);
                 })
                 .catch(() => {
-                    // Резервный локатор
                     fetch('https://ipinfo.io/json')
                     .then(res => res.json())
                     .then(geo => {
@@ -1029,11 +1065,7 @@ app.post('/api/chat/send', (req, res) => {
     res.json({ success: true });
 });
 
-// === API КАРТЫ И МУЛЬТИПЛЕЕРА ИГРЫ ===
-app.get('/api/parkour/map', (req, res) => {
-    res.json(parkourPlatforms);
-});
-
+// === API СИНХРОНИЗАЦИИ МУЛЬТИПЛЕЕРА ===
 app.post('/api/parkour/sync', (req, res) => {
     const { nickname, x, y, z, rx, ry } = req.body;
     if (!nickname) return res.status(400).json({ error: "No Nick" });
@@ -1051,5 +1083,5 @@ app.post('/api/parkour/sync', (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`[CtalkeP] Система перезапущена. Ошибки коллизий и геопозиционирования устранены.`);
+    console.log(`[CtalkeP] Бесконечный 3D-Паркур успешно перезапущен на порту: ${PORT}`);
 });
